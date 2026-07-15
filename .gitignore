@@ -1,13 +1,34 @@
 .env
+.env.*
+!.env.example
 
 __pycache__/
 *.py[cod]
+*$py.class
+*.so
 *.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.coverage
+htmlcov/
+
 .venv/
 venv/
 env/
+ENV/
 
 .idea/
 .vscode/
 *.swp
+*.swo
 .DS_Store
+Thumbs.db
+
+*.log
+instance/
+
+# Ignore all seeders
+**/seeders/
+**/*seeder*.py
