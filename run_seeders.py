@@ -1,4 +1,4 @@
-from app.seeders.user_seeder import seed_education, seed_users
+from app.seeders.user_seeder import seed_education, seed_health_data, seed_users
 
 
 def run_all():
@@ -6,6 +6,8 @@ def run_all():
     seed_users()
     print("Running education seeder...")
     seed_education()
+    print("Running health data seeder...")
+    seed_health_data()
     print("All seeders completed.")
 
 
