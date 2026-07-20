@@ -92,6 +92,11 @@ class Config:
         minutes=int(os.getenv("JWT_ACCESS_TOKEN_EXPIRES_MINUTES", "1440"))
     )
 
+    DEBUG = os.getenv("FLASK_DEBUG", "False").lower() in ("true", "1", "yes")
+    ADMIN_NAME = os.getenv("ADMIN_NAME")
+    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL")
+    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+
     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
 
     @staticmethod

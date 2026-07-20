@@ -1,3 +1,4 @@
+from app.routes.admin_routes import admin_bp
 from app.routes.auth_routes import auth_bp
 from app.routes.health_profile_routes import health_profile_bp
 from app.routes.cycle_routes import cycle_bp
@@ -10,6 +11,7 @@ from app.routes.forum_routes import forum_bp
 
 
 def register_blueprints(app):
+    app.register_blueprint(admin_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(health_profile_bp)
     app.register_blueprint(cycle_bp)
