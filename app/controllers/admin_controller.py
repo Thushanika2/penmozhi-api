@@ -57,6 +57,10 @@ def _admin_log(action, details=None, admin_id=None, admin_email=None):
     logger.info(message)
 
 
+def _get_admin_context():
+    return getattr(current_user, "id", None), getattr(current_user, "email", None)
+
+
 def _is_development_mode():
     flask_env = os.getenv("FLASK_ENV", "").strip().lower()
     flask_debug = os.getenv("FLASK_DEBUG", "").strip().lower() in ("true", "1", "yes")
@@ -64,10 +68,30 @@ def _is_development_mode():
     return flask_env == "development" or flask_debug or app_debug
 
 
-def reset_data():
-    admin_id = getattr(current_user, "id", None)
-    admin_email = getattr(current_user, "email", None)
-    _admin_log("reset-data", "starting", admin_id=admin_id, admin_email=admin_email)
+def _development_only_response(action):
+    return jsonify({
+        "success": False,
+        "error": (
+            f"{action} is disabled in this environment. "
+            "Set FLASK_ENV=development or FLASK_DEBUG=True to enable."
+        ),
+    }), 403
+
+
+def _error_response(action, exc, status=500):
+    db.session.rollback()
+    logger.exception("Admin %s failed", action)
+    return jsonify({
+        "success": False,
+        "error": f"Failed to {action.replace('-', ' ')}.",
+        "details": str(exc),
+    }), status
+
+
+def clear_data():
+    """Delete all rows. Table structure and AUTO_INCREMENT counters are preserved."""
+    admin_id, admin_email = _get_admin_context()
+    _admin_log("clear-data", "starting", admin_id=admin_id, admin_email=admin_email)
 
     deleted_counts = {}
     try:
@@ -77,7 +101,7 @@ def reset_data():
 
         db.session.commit()
         _admin_log(
-            "reset-data",
+            "clear-data",
             f"success deleted={deleted_counts}",
             admin_id=admin_id,
             admin_email=admin_email,
@@ -85,30 +109,60 @@ def reset_data():
 
         return jsonify({
             "success": True,
-            "message": "All application data deleted successfully.",
+            "operation": "clear-data",
+            "message": "All application data deleted. AUTO_INCREMENT values were not reset.",
+            "ids_reset": False,
             "deleted_counts": deleted_counts,
         }), 200
     except SQLAlchemyError as exc:
-        db.session.rollback()
-        logger.exception("Admin reset-data failed")
-        return jsonify({
-            "success": False,
-            "error": "Failed to reset application data.",
-            "details": str(exc),
-        }), 500
+        return _error_response("clear-data", exc)
     except Exception as exc:
-        db.session.rollback()
-        logger.exception("Admin reset-data failed")
+        return _error_response("clear-data", exc)
+
+
+def truncate_data():
+    """Truncate all application tables and reset AUTO_INCREMENT to 1."""
+    admin_id, admin_email = _get_admin_context()
+    _admin_log("truncate-data", "starting", admin_id=admin_id, admin_email=admin_email)
+
+    truncated_tables = []
+    try:
+        db.session.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
+        for model in DELETE_ORDER:
+            table_name = model.__tablename__
+            db.session.execute(text(f"TRUNCATE TABLE `{table_name}`"))
+            truncated_tables.append(table_name)
+        db.session.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
+        db.session.commit()
+
+        _admin_log(
+            "truncate-data",
+            f"success tables={truncated_tables}",
+            admin_id=admin_id,
+            admin_email=admin_email,
+        )
+
         return jsonify({
-            "success": False,
-            "error": "An internal server error occurred.",
-            "details": str(exc),
-        }), 500
+            "success": True,
+            "operation": "truncate-data",
+            "message": "All application tables truncated. New records will start from id=1.",
+            "ids_reset": True,
+            "truncated_tables": truncated_tables,
+        }), 200
+    except SQLAlchemyError as exc:
+        return _error_response("truncate-data", exc)
+    except Exception as exc:
+        return _error_response("truncate-data", exc)
+
+
+def reset_data():
+    """Backward-compatible alias for clear_data."""
+    return clear_data()
 
 
 def reset_db():
-    admin_id = getattr(current_user, "id", None)
-    admin_email = getattr(current_user, "email", None)
+    """Drop and recreate all tables. Development only."""
+    admin_id, admin_email = _get_admin_context()
 
     if not _is_development_mode():
         _admin_log(
@@ -117,13 +171,7 @@ def reset_db():
             admin_id=admin_id,
             admin_email=admin_email,
         )
-        return jsonify({
-            "success": False,
-            "error": (
-                "Reset database is disabled in this environment. "
-                "Set FLASK_ENV=development or FLASK_DEBUG=True to enable."
-            ),
-        }), 403
+        return _development_only_response("Reset database")
 
     _admin_log("reset-db", "starting", admin_id=admin_id, admin_email=admin_email)
 
@@ -135,25 +183,116 @@ def reset_db():
 
         return jsonify({
             "success": True,
+            "operation": "reset-db",
             "message": "Database dropped and recreated successfully.",
+            "ids_reset": True,
             "tables_recreated": [model.__tablename__ for model in APPLICATION_MODELS],
         }), 200
     except SQLAlchemyError as exc:
-        db.session.rollback()
-        logger.exception("Admin reset-db failed")
-        return jsonify({
-            "success": False,
-            "error": "Failed to reset database.",
-            "details": str(exc),
-        }), 500
+        return _error_response("reset-db", exc)
     except Exception as exc:
-        db.session.rollback()
-        logger.exception("Admin reset-db failed")
+        return _error_response("reset-db", exc)
+
+
+def _get_migration_info():
+    from alembic.runtime.migration import MigrationContext
+    from alembic.script import ScriptDirectory
+
+    migrate_ext = current_app.extensions["migrate"]
+    config = migrate_ext.migrate.get_config()
+    script = ScriptDirectory.from_config(config)
+
+    with db.engine.connect() as connection:
+        context = MigrationContext.configure(connection)
+        current_revision = context.get_current_revision()
+
+    head_revision = script.get_current_head()
+    pending_revisions = []
+    if current_revision != head_revision:
+        for revision in script.iterate_revisions(head_revision, current_revision):
+            if revision.revision != current_revision:
+                pending_revisions.append(revision.revision)
+
+    return {
+        "current_revision": current_revision,
+        "head_revision": head_revision,
+        "pending_upgrade": current_revision != head_revision,
+        "pending_revisions": pending_revisions,
+    }
+
+
+def migration_status():
+    _admin_log("migration-status", "checking")
+
+    try:
+        db.session.execute(text("SELECT 1"))
+        migration_info = _get_migration_info()
+
         return jsonify({
-            "success": False,
-            "error": "An internal server error occurred.",
-            "details": str(exc),
-        }), 500
+            "success": True,
+            "operation": "migration-status",
+            **migration_info,
+        }), 200
+    except SQLAlchemyError as exc:
+        return _error_response("migration-status", exc)
+    except Exception as exc:
+        return _error_response("migration-status", exc)
+
+
+def migration_upgrade():
+    admin_id, admin_email = _get_admin_context()
+    _admin_log("migration-upgrade", "starting", admin_id=admin_id, admin_email=admin_email)
+
+    try:
+        from flask_migrate import upgrade
+
+        upgrade()
+        migration_info = _get_migration_info()
+        _admin_log("migration-upgrade", "success", admin_id=admin_id, admin_email=admin_email)
+
+        return jsonify({
+            "success": True,
+            "operation": "migration-upgrade",
+            "message": "Database migrations applied successfully.",
+            **migration_info,
+        }), 200
+    except SQLAlchemyError as exc:
+        return _error_response("migration-upgrade", exc)
+    except Exception as exc:
+        return _error_response("migration-upgrade", exc)
+
+
+def migration_downgrade():
+    admin_id, admin_email = _get_admin_context()
+
+    if not _is_development_mode():
+        _admin_log(
+            "migration-downgrade",
+            "blocked (not development mode)",
+            admin_id=admin_id,
+            admin_email=admin_email,
+        )
+        return _development_only_response("Migration downgrade")
+
+    _admin_log("migration-downgrade", "starting", admin_id=admin_id, admin_email=admin_email)
+
+    try:
+        from flask_migrate import downgrade
+
+        downgrade()
+        migration_info = _get_migration_info()
+        _admin_log("migration-downgrade", "success", admin_id=admin_id, admin_email=admin_email)
+
+        return jsonify({
+            "success": True,
+            "operation": "migration-downgrade",
+            "message": "Last migration rolled back successfully.",
+            **migration_info,
+        }), 200
+    except SQLAlchemyError as exc:
+        return _error_response("migration-downgrade", exc)
+    except Exception as exc:
+        return _error_response("migration-downgrade", exc)
 
 
 def seed_admin():
@@ -209,21 +348,9 @@ def seed_admin():
             "admin": admin.to_dict(),
         }), 201
     except SQLAlchemyError as exc:
-        db.session.rollback()
-        logger.exception("Admin seed-admin failed")
-        return jsonify({
-            "success": False,
-            "error": "Failed to create admin account.",
-            "details": str(exc),
-        }), 500
+        return _error_response("seed-admin", exc)
     except Exception as exc:
-        db.session.rollback()
-        logger.exception("Admin seed-admin failed")
-        return jsonify({
-            "success": False,
-            "error": "An internal server error occurred.",
-            "details": str(exc),
-        }), 500
+        return _error_response("seed-admin", exc)
 
 
 def db_status():
@@ -262,6 +389,8 @@ def db_status():
             table_counts[table_name] = count
             total_records += count
 
+        migration_info = _get_migration_info()
+
         return jsonify({
             "success": True,
             "health_status": health_status,
@@ -269,22 +398,9 @@ def db_status():
             "application_tables": len(app_tables),
             "total_records": total_records,
             "table_counts": table_counts,
+            **migration_info,
         }), 200
     except SQLAlchemyError as exc:
-        db.session.rollback()
-        logger.exception("Admin db-status failed")
-        return jsonify({
-            "success": False,
-            "health_status": "degraded",
-            "error": "Failed to retrieve database status.",
-            "details": str(exc),
-        }), 500
+        return _error_response("db-status", exc)
     except Exception as exc:
-        db.session.rollback()
-        logger.exception("Admin db-status failed")
-        return jsonify({
-            "success": False,
-            "health_status": "degraded",
-            "error": "An internal server error occurred.",
-            "details": str(exc),
-        }), 500
+        return _error_response("db-status", exc)
