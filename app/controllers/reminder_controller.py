@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from flask import jsonify, request
 from flask_jwt_extended import current_user
 
+from app.api_responses import error_response, message_response, validation_errors
 from app.extensions import db
 from app.models.medication_supplement_reminder_model import MedicationSupplementReminder
 from app.utils import parse_time
@@ -11,9 +12,9 @@ from app.utils import parse_time
 def _get_owned_reminder(reminder_id):
     reminder = db.session.get(MedicationSupplementReminder, reminder_id)
     if not reminder:
-        return None, (jsonify({"error": "Reminder not found."}), 404)
+        return None, error_response("reminders.not_found", "Reminder not found.", 404)
     if reminder.profile_id != current_user.id:
-        return None, (jsonify({"error": "Access forbidden: insufficient permissions."}), 403)
+        return None, error_response("auth.forbidden", "Access forbidden: insufficient permissions.", 403)
     return reminder, None
 
 
@@ -40,11 +41,11 @@ def _validate_reminder_payload(data, reminder_id=None):
 def create_reminder():
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({"error": "Request body is required."}), 400
+        return error_response("request.body_required", "Request body is required.", 400)
 
     errors = _validate_reminder_payload(data)
     if errors:
-        return jsonify({"errors": errors}), 400
+        return validation_errors([("validation.invalid_payload", msg) for msg in errors], 400)
 
     try:
         reminder = MedicationSupplementReminder(
@@ -58,13 +59,15 @@ def create_reminder():
         db.session.add(reminder)
         db.session.commit()
 
-        return jsonify({
-            "message": "Reminder created successfully.",
-            "reminder": reminder.to_dict(),
-        }), 201
+        return message_response(
+            "reminders.created_success",
+            "Reminder created successfully.",
+            201,
+            reminder=reminder.to_dict(),
+        )
     except Exception:
         db.session.rollback()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
 
 
 def get_my_reminders():
@@ -83,11 +86,11 @@ def update_reminder(reminder_id):
 
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({"error": "Request body is required."}), 400
+        return error_response("request.body_required", "Request body is required.", 400)
 
     errors = _validate_reminder_payload(data, reminder_id=reminder_id)
     if errors:
-        return jsonify({"errors": errors}), 400
+        return validation_errors([("validation.invalid_payload", msg) for msg in errors], 400)
 
     try:
         if "item_name" in data and data.get("item_name") is not None:
@@ -104,13 +107,15 @@ def update_reminder(reminder_id):
             reminder.adherence_status = str(data.get("adherence_status")).strip()
 
         db.session.commit()
-        return jsonify({
-            "message": "Reminder updated successfully.",
-            "reminder": reminder.to_dict(),
-        }), 200
+        return message_response(
+            "reminders.updated_success",
+            "Reminder updated successfully.",
+            200,
+            reminder=reminder.to_dict(),
+        )
     except Exception:
         db.session.rollback()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
 
 
 def mark_reminder_taken(reminder_id):
@@ -121,13 +126,15 @@ def mark_reminder_taken(reminder_id):
     try:
         reminder.adherence_status = "taken"
         db.session.commit()
-        return jsonify({
-            "message": "Reminder marked as taken.",
-            "reminder": reminder.to_dict(),
-        }), 200
+        return message_response(
+            "reminders.marked_taken",
+            "Reminder marked as taken.",
+            200,
+            reminder=reminder.to_dict(),
+        )
     except Exception:
         db.session.rollback()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
 
 
 def snooze_reminder(reminder_id):
@@ -140,9 +147,9 @@ def snooze_reminder(reminder_id):
     try:
         minutes = int(minutes)
         if minutes <= 0:
-            return jsonify({"error": "minutes must be a positive integer."}), 400
+            return error_response("validation.minutes_positive", "minutes must be a positive integer.", 400)
     except (TypeError, ValueError):
-        return jsonify({"error": "minutes must be a positive integer."}), 400
+        return error_response("validation.minutes_positive", "minutes must be a positive integer.", 400)
 
     try:
         base = datetime.combine(datetime.today().date(), reminder.scheduled_time)
@@ -150,13 +157,15 @@ def snooze_reminder(reminder_id):
         reminder.scheduled_time = new_time
         reminder.adherence_status = "snoozed"
         db.session.commit()
-        return jsonify({
-            "message": f"Reminder snoozed by {minutes} minutes.",
-            "reminder": reminder.to_dict(),
-        }), 200
+        return message_response(
+            "reminders.snoozed",
+            f"Reminder snoozed by {minutes} minutes.",
+            200,
+            reminder=reminder.to_dict(),
+        )
     except Exception:
         db.session.rollback()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
 
 
 def delete_reminder(reminder_id):
@@ -167,7 +176,7 @@ def delete_reminder(reminder_id):
     try:
         db.session.delete(reminder)
         db.session.commit()
-        return jsonify({"message": "Reminder deleted successfully."}), 200
+        return message_response("reminders.deleted_success", "Reminder deleted successfully.", 200)
     except Exception:
         db.session.rollback()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
