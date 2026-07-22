@@ -3,6 +3,7 @@ from datetime import timedelta
 from flask import jsonify, request
 from flask_jwt_extended import current_user
 
+from app.api_responses import error_response, message_response, validation_errors
 from app.extensions import db
 from app.models.cycle_history_log_model import CycleHistoryLog
 from app.utils import parse_date
@@ -61,11 +62,11 @@ def _predict_next_period(profile_id, latest_start):
 def create_cycle():
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({"error": "Request body is required."}), 400
+        return error_response("request.body_required", "Request body is required.", 400)
 
     errors = _validate_cycle_payload(data)
     if errors:
-        return jsonify({"errors": errors}), 400
+        return validation_errors([("validation.invalid_payload", msg) for msg in errors], 400)
 
     try:
         start = parse_date(data.get("cycle_start_date"))
@@ -82,13 +83,15 @@ def create_cycle():
         db.session.add(cycle)
         db.session.commit()
 
-        return jsonify({
-            "message": "Cycle entry created successfully.",
-            "cycle": cycle.to_dict(),
-        }), 201
+        return message_response(
+            "cycle.created_success",
+            "Cycle entry created successfully.",
+            201,
+            cycle=cycle.to_dict(),
+        )
     except Exception:
         db.session.rollback()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
 
 
 def get_my_cycles():
@@ -110,6 +113,7 @@ def predict_next_period():
         return jsonify({
             "predicted_next_period_date": None,
             "message": "Log at least one cycle to get a prediction.",
+            "message_code": "cycle.log_at_least_one",
         }), 200
 
     latest = cycles[0]
