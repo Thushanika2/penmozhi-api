@@ -3,6 +3,7 @@ from collections import defaultdict
 from flask import jsonify, request
 from flask_jwt_extended import current_user
 
+from app.api_responses import error_response, message_response, validation_errors
 from app.extensions import db
 from app.models.health_profile_model import HealthProfile
 from app.models.pcos_disorder_status_model import PCOSDisorderStatus
@@ -52,11 +53,11 @@ def _validate_symptom_payload(data):
 def create_symptom():
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({"error": "Request body is required."}), 400
+        return error_response("request.body_required", "Request body is required.", 400)
 
     errors = _validate_symptom_payload(data)
     if errors:
-        return jsonify({"errors": errors}), 400
+        return validation_errors([("validation.invalid_payload", msg) for msg in errors], 400)
 
     try:
         disorder_status_id = data.get("disorder_status_id")
@@ -89,6 +90,7 @@ def create_symptom():
 
         response = {
             "message": "Symptom entry created successfully.",
+            "message_code": "symptoms.created_success",
             "symptom": symptom.to_dict(),
         }
         if symptom.pain_severity >= 7:
@@ -96,11 +98,12 @@ def create_symptom():
                 "High pain severity detected. Review your PCOS status and "
                 "consider asking the AI Health Assistant for recommendations."
             )
+            response["ai_flag_code"] = "symptoms.high_pain_severity"
 
         return jsonify(response), 201
     except Exception:
         db.session.rollback()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
 
 
 def get_my_symptoms():
