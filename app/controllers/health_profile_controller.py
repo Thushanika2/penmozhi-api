@@ -1,6 +1,7 @@
 from flask import jsonify, request
 from flask_jwt_extended import current_user
 
+from app.api_responses import error_response, message_response, validation_errors
 from app.extensions import db
 from app.models.health_profile_model import HealthProfile
 from app.utils import calculate_bmi
@@ -9,9 +10,9 @@ from app.utils import calculate_bmi
 def _get_owned_health_profile(health_profile_id):
     health_profile = db.session.get(HealthProfile, health_profile_id)
     if not health_profile:
-        return None, (jsonify({"error": "Health profile not found."}), 404)
+        return None, error_response("health.not_found", "Health profile not found.", 404)
     if current_user.role != "user" or health_profile.profile_id != current_user.id:
-        return None, (jsonify({"error": "Access forbidden: insufficient permissions."}), 403)
+        return None, error_response("auth.forbidden", "Access forbidden: insufficient permissions.", 403)
     return health_profile, None
 
 
@@ -53,11 +54,11 @@ def update_health_profile(health_profile_id):
 
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({"error": "Request body is required."}), 400
+        return error_response("request.body_required", "Request body is required.", 400)
 
     errors = _validate_health_profile_payload(data)
     if errors:
-        return jsonify({"errors": errors}), 400
+        return validation_errors([("validation.invalid_payload", msg) for msg in errors], 400)
 
     try:
         if "weight" in data:
@@ -87,13 +88,15 @@ def update_health_profile(health_profile_id):
         )
         db.session.commit()
 
-        return jsonify({
-            "message": "Health profile updated successfully.",
-            "health_profile": health_profile.to_dict(),
-        }), 200
+        return message_response(
+            "health.updated_success",
+            "Health profile updated successfully.",
+            200,
+            health_profile=health_profile.to_dict(),
+        )
     except Exception:
         db.session.rollback()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
 
 
 def get_health_profile_risks(health_profile_id):
@@ -106,17 +109,25 @@ def get_health_profile_risks(health_profile_id):
         risks.append(health_profile.health_risks)
 
     bmi = health_profile.calculated_bmi
+    bmi_category = None
     if bmi is not None:
         if bmi < 18.5:
+            bmi_category = "underweight"
             risks.append("Underweight BMI — discuss nutrition with a clinician.")
-        elif bmi >= 25 and bmi < 30:
+        elif bmi < 25:
+            bmi_category = "normal"
+        elif bmi < 30:
+            bmi_category = "overweight"
             risks.append("Overweight BMI — lifestyle and diet review recommended.")
-        elif bmi >= 30:
+        else:
+            bmi_category = "obese"
             risks.append("Obese BMI — clinical follow-up recommended.")
 
     return jsonify({
         "health_profile_id": health_profile.id,
         "calculated_bmi": bmi,
+        "bmi_category": bmi_category,
         "health_risks": health_profile.health_risks,
+        "nutritional_needs": health_profile.nutritional_needs,
         "risks": risks,
     }), 200
