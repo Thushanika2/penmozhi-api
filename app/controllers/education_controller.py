@@ -1,5 +1,6 @@
 from flask import jsonify, request
 
+from app.api_responses import error_response, message_response, validation_errors
 from app.extensions import db
 from app.models.educational_resource_model import EducationalResource
 from app.utils import parse_date, utc_now
@@ -39,18 +40,18 @@ def get_education_resources():
 def get_education_resource(resource_id):
     resource = db.session.get(EducationalResource, resource_id)
     if not resource:
-        return jsonify({"error": "Educational resource not found."}), 404
+        return error_response("education.not_found", "Educational resource not found.", 404)
     return jsonify({"education_resource": resource.to_dict()}), 200
 
 
 def create_education_resource():
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({"error": "Request body is required."}), 400
+        return error_response("request.body_required", "Request body is required.", 400)
 
     errors = _validate_education_payload(data)
     if errors:
-        return jsonify({"errors": errors}), 400
+        return validation_errors([("validation.invalid_payload", msg) for msg in errors], 400)
 
     try:
         resource = EducationalResource(
@@ -61,27 +62,29 @@ def create_education_resource():
         )
         db.session.add(resource)
         db.session.commit()
-        return jsonify({
-            "message": "Educational resource created successfully.",
-            "education_resource": resource.to_dict(),
-        }), 201
+        return message_response(
+            "education.created_success",
+            "Educational resource created successfully.",
+            201,
+            education_resource=resource.to_dict(),
+        )
     except Exception:
         db.session.rollback()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
 
 
 def update_education_resource(resource_id):
     resource = db.session.get(EducationalResource, resource_id)
     if not resource:
-        return jsonify({"error": "Educational resource not found."}), 404
+        return error_response("education.not_found", "Educational resource not found.", 404)
 
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({"error": "Request body is required."}), 400
+        return error_response("request.body_required", "Request body is required.", 400)
 
     errors = _validate_education_payload(data, resource_id=resource_id)
     if errors:
-        return jsonify({"errors": errors}), 400
+        return validation_errors([("validation.invalid_payload", msg) for msg in errors], 400)
 
     try:
         if "article_title" in data and data.get("article_title") is not None:
@@ -94,24 +97,26 @@ def update_education_resource(resource_id):
             resource.publication_date = parse_date(data.get("publication_date"))
 
         db.session.commit()
-        return jsonify({
-            "message": "Educational resource updated successfully.",
-            "education_resource": resource.to_dict(),
-        }), 200
+        return message_response(
+            "education.updated_success",
+            "Educational resource updated successfully.",
+            200,
+            education_resource=resource.to_dict(),
+        )
     except Exception:
         db.session.rollback()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
 
 
 def delete_education_resource(resource_id):
     resource = db.session.get(EducationalResource, resource_id)
     if not resource:
-        return jsonify({"error": "Educational resource not found."}), 404
+        return error_response("education.not_found", "Educational resource not found.", 404)
 
     try:
         db.session.delete(resource)
         db.session.commit()
-        return jsonify({"message": "Educational resource deleted successfully."}), 200
+        return message_response("education.deleted_success", "Educational resource deleted successfully.", 200)
     except Exception:
         db.session.rollback()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
