@@ -3,6 +3,7 @@ import json
 from flask import jsonify, request
 from flask_jwt_extended import current_user
 
+from app.api_responses import error_response, validation_errors
 from app.extensions import db
 from app.models.ai_health_assistant_session_model import AIHealthAssistantSession
 from app.models.symptom_tracking_log_model import SymptomTrackingLog
@@ -48,11 +49,11 @@ def _build_recommendations(message, symptoms):
 def chat():
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({"error": "Request body is required."}), 400
+        return error_response("request.body_required", "Request body is required.", 400)
 
     message = data.get("message")
     if message is None or str(message).strip() == "":
-        return jsonify({"errors": ["message is required."]}), 400
+        return validation_errors([("validation.message_required", "message is required.")], 400)
 
     message = str(message).strip()
 
@@ -86,13 +87,14 @@ def chat():
 
         return jsonify({
             "message": "Chat response generated.",
+            "message_code": "ai.chat_generated",
             "reply": reply,
             "recommendations": recommendations,
             "session": session.to_dict(),
         }), 201
     except Exception:
         db.session.rollback()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
 
 
 def get_recommendations():
