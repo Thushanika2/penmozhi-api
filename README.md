@@ -169,6 +169,30 @@ Headers:
 Authorization: Bearer {{access_token}}
 ```
 
+### Update current profile language
+
+Method: `PATCH`
+
+URL:
+
+```text
+http://127.0.0.1:5000/api/auth/profile
+```
+
+Headers:
+
+```text
+Authorization: Bearer {{access_token}}
+```
+
+Body:
+
+```json
+{
+  "language_preference": "english"
+}
+```
+
 ### Logout
 
 Method: `POST`

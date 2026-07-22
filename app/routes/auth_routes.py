@@ -26,3 +26,9 @@ def logout():
 @jwt_required_user
 def profile():
     return ctrl.profile()
+
+
+@auth_bp.route("/profile", methods=["PATCH"])
+@jwt_required_user
+def update_profile():
+    return ctrl.update_profile()

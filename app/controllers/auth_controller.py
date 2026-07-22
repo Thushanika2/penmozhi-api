@@ -3,6 +3,7 @@ import re
 from flask import jsonify, request
 from flask_jwt_extended import create_access_token, current_user
 
+from app.api_responses import error_response, message_response, validation_errors
 from app.extensions import db
 from app.models.health_profile_model import HealthProfile
 from app.models.pcos_disorder_status_model import PCOSDisorderStatus
@@ -75,11 +76,11 @@ def _validate_login_payload(data):
 def register():
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({"error": "Request body is required."}), 400
+        return error_response("request.body_required", "Request body is required.", 400)
 
     errors = _validate_register_payload(data)
     if errors:
-        return jsonify({"errors": errors}), 400
+        return validation_errors([("validation.invalid_payload", msg) for msg in errors], 400)
 
     try:
         user = UserProfile(
@@ -114,24 +115,24 @@ def register():
         }), 201
     except Exception:
         db.session.rollback()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
 
 
 def login():
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({"error": "Request body is required."}), 400
+        return error_response("request.body_required", "Request body is required.", 400)
 
     errors = _validate_login_payload(data)
     if errors:
-        return jsonify({"errors": errors}), 400
+        return validation_errors([("validation.invalid_payload", msg) for msg in errors], 400)
 
     try:
         email_str = str(data.get("email")).strip()
         user = UserProfile.query.filter_by(email=email_str).first()
 
         if not user or not user.check_password(str(data.get("password"))):
-            return jsonify({"error": "Invalid email or password."}), 401
+            return error_response("auth.invalid_credentials", "Invalid email or password.", 401)
 
         access_token = create_access_token(identity=str(user.id))
         return jsonify({
@@ -141,20 +142,51 @@ def login():
         }), 200
     except Exception:
         db.session.rollback()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
 
 
 def logout():
-    return jsonify({"message": "Logout successful."}), 200
+    return message_response("auth.logout_success", "Logout successful.", 200)
 
 
 def profile():
     user = current_user
     if not user:
-        return jsonify({"error": "User not found."}), 404
+        return error_response("auth.user_not_found", "User not found.", 404)
 
     payload = {"user": user.to_dict()}
     if user.health_profile:
         payload["health_profile"] = user.health_profile.to_dict()
 
     return jsonify(payload), 200
+
+
+def update_profile():
+    user = current_user
+    if not user:
+        return error_response("auth.user_not_found", "User not found.", 404)
+
+    data = request.get_json(silent=True)
+    if not data:
+        return error_response("request.body_required", "Request body is required.", 400)
+
+    language = data.get("language_preference")
+    if language is None:
+        return validation_errors([("validation.language_required", "language_preference is required.")], 400)
+
+    language = str(language).strip().lower()
+    if language not in LANGUAGE_PREFERENCES:
+        return validation_errors([("validation.language_invalid", "language_preference must be 'tamil' or 'english'.")], 400)
+
+    try:
+        user.language_preference = language
+        db.session.commit()
+        return message_response(
+            "auth.profile_updated",
+            "Profile updated successfully.",
+            200,
+            user=user.to_dict(),
+        )
+    except Exception:
+        db.session.rollback()
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
