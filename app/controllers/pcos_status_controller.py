@@ -1,6 +1,7 @@
 from flask import jsonify, request
 from flask_jwt_extended import current_user
 
+from app.api_responses import error_response, message_response, validation_errors
 from app.extensions import db
 from app.models.health_profile_model import HealthProfile
 from app.models.pcos_disorder_status_model import PCOSDisorderStatus
@@ -14,11 +15,11 @@ def _user_health_profile():
 def _get_accessible_status(status_id):
     status = db.session.get(PCOSDisorderStatus, status_id)
     if not status:
-        return None, (jsonify({"error": "PCOS disorder status not found."}), 404)
+        return None, error_response("pcos.not_found", "PCOS disorder status not found.", 404)
 
     health = db.session.get(HealthProfile, status.health_profile_id)
     if not health:
-        return None, (jsonify({"error": "PCOS disorder status not found."}), 404)
+        return None, error_response("pcos.not_found", "PCOS disorder status not found.", 404)
 
     if current_user.role == "admin":
         return status, None
@@ -26,13 +27,13 @@ def _get_accessible_status(status_id):
     if current_user.role == "user" and health.profile_id == current_user.id:
         return status, None
 
-    return None, (jsonify({"error": "Access forbidden: insufficient permissions."}), 403)
+    return None, error_response("auth.forbidden", "Access forbidden: insufficient permissions.", 403)
 
 
 def get_my_pcos_status():
     health = _user_health_profile()
     if not health:
-        return jsonify({"error": "Health profile not found."}), 404
+        return error_response("health.not_found", "Health profile not found.", 404)
 
     statuses = (
         PCOSDisorderStatus.query.filter_by(health_profile_id=health.id)
@@ -49,7 +50,7 @@ def update_pcos_status(status_id):
 
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({"error": "Request body is required."}), 400
+        return error_response("request.body_required", "Request body is required.", 400)
 
     errors = []
     if "diagnosed_date" in data and data.get("diagnosed_date"):
@@ -58,7 +59,7 @@ def update_pcos_status(status_id):
         except ValueError:
             errors.append("diagnosed_date must be a valid date (YYYY-MM-DD).")
     if errors:
-        return jsonify({"errors": errors}), 400
+        return validation_errors([("validation.invalid_payload", msg) for msg in errors], 400)
 
     try:
         disorder_type = status.disorder_type
@@ -82,13 +83,15 @@ def update_pcos_status(status_id):
         )
         db.session.add(updated)
         db.session.commit()
-        return jsonify({
-            "message": "PCOS disorder status updated successfully.",
-            "pcos_status": updated.to_dict(),
-        }), 200
+        return message_response(
+            "pcos.updated_success",
+            "PCOS disorder status updated successfully.",
+            200,
+            pcos_status=updated.to_dict(),
+        )
     except Exception:
         db.session.rollback()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
 
 
 def get_pcos_status_history(status_id):
