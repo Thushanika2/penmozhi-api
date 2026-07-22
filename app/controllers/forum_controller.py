@@ -1,6 +1,7 @@
 from flask import jsonify, request
 from flask_jwt_extended import current_user
 
+from app.api_responses import error_response, message_response, validation_errors
 from app.extensions import db
 from app.models.educational_resource_model import EducationalResource
 from app.models.forum_comment_model import ForumComment
@@ -46,18 +47,18 @@ def get_forum_posts():
 def get_forum_post(post_id):
     post = db.session.get(ForumPost, post_id)
     if not post:
-        return jsonify({"error": "Forum post not found."}), 404
+        return error_response("forum.post_not_found", "Forum post not found.", 404)
     return jsonify({"forum_post": _post_to_public_dict(post, include_comments=True)}), 200
 
 
 def create_forum_post():
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({"error": "Request body is required."}), 400
+        return error_response("request.body_required", "Request body is required.", 400)
 
     errors = _validate_post_payload(data)
     if errors:
-        return jsonify({"errors": errors}), 400
+        return validation_errors([("validation.invalid_payload", msg) for msg in errors], 400)
 
     try:
         content_id = data.get("content_id")
@@ -75,29 +76,31 @@ def create_forum_post():
         )
         db.session.add(post)
         db.session.commit()
-        return jsonify({
-            "message": "Forum post created successfully.",
-            "forum_post": _post_to_public_dict(post),
-        }), 201
+        return message_response(
+            "forum.post_created",
+            "Forum post created successfully.",
+            201,
+            forum_post=_post_to_public_dict(post),
+        )
     except Exception:
         db.session.rollback()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
 
 
 def update_forum_post(post_id):
     post = db.session.get(ForumPost, post_id)
     if not post:
-        return jsonify({"error": "Forum post not found."}), 404
+        return error_response("forum.post_not_found", "Forum post not found.", 404)
     if post.profile_id != current_user.id:
-        return jsonify({"error": "Access forbidden: insufficient permissions."}), 403
+        return error_response("auth.forbidden", "Access forbidden: insufficient permissions.", 403)
 
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({"error": "Request body is required."}), 400
+        return error_response("request.body_required", "Request body is required.", 400)
 
     errors = _validate_post_payload(data, post_id=post_id)
     if errors:
-        return jsonify({"errors": errors}), 400
+        return validation_errors([("validation.invalid_payload", msg) for msg in errors], 400)
 
     try:
         if "title" in data and data.get("title") is not None:
@@ -109,46 +112,48 @@ def update_forum_post(post_id):
             post.content_id = int(value) if value is not None and str(value).strip() != "" else None
 
         db.session.commit()
-        return jsonify({
-            "message": "Forum post updated successfully.",
-            "forum_post": _post_to_public_dict(post),
-        }), 200
+        return message_response(
+            "forum.post_updated",
+            "Forum post updated successfully.",
+            200,
+            forum_post=_post_to_public_dict(post),
+        )
     except Exception:
         db.session.rollback()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
 
 
 def delete_forum_post(post_id):
     post = db.session.get(ForumPost, post_id)
     if not post:
-        return jsonify({"error": "Forum post not found."}), 404
+        return error_response("forum.post_not_found", "Forum post not found.", 404)
 
     is_owner = post.profile_id == current_user.id
     is_admin = current_user.role == "admin"
     if not is_owner and not is_admin:
-        return jsonify({"error": "Access forbidden: insufficient permissions."}), 403
+        return error_response("auth.forbidden", "Access forbidden: insufficient permissions.", 403)
 
     try:
         db.session.delete(post)
         db.session.commit()
-        return jsonify({"message": "Forum post deleted successfully."}), 200
+        return message_response("forum.post_deleted", "Forum post deleted successfully.", 200)
     except Exception:
         db.session.rollback()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
 
 
 def create_forum_comment(post_id):
     post = db.session.get(ForumPost, post_id)
     if not post:
-        return jsonify({"error": "Forum post not found."}), 404
+        return error_response("forum.post_not_found", "Forum post not found.", 404)
 
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({"error": "Request body is required."}), 400
+        return error_response("request.body_required", "Request body is required.", 400)
 
     body = data.get("body")
     if body is None or str(body).strip() == "":
-        return jsonify({"errors": ["body is required."]}), 400
+        return validation_errors([("validation.body_required", "body is required.")], 400)
 
     try:
         comment = ForumComment(
@@ -159,10 +164,12 @@ def create_forum_comment(post_id):
         )
         db.session.add(comment)
         db.session.commit()
-        return jsonify({
-            "message": "Comment created successfully.",
-            "comment": comment.to_dict(anonymous=True),
-        }), 201
+        return message_response(
+            "forum.comment_created",
+            "Comment created successfully.",
+            201,
+            forum_comment=comment.to_dict(anonymous=True),
+        )
     except Exception:
         db.session.rollback()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
