@@ -1,10 +1,12 @@
+import csv
+import io
 import logging
 import os
-from datetime import date
+from datetime import date, datetime, timedelta
 
-from flask import current_app, jsonify
+from flask import current_app, jsonify, make_response, request
 from flask_jwt_extended import current_user
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, or_, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import Config
@@ -12,6 +14,7 @@ from app.extensions import db
 from app.models import (
     AIHealthAssistantSession,
     CycleHistoryLog,
+    DailyLog,
     EducationalResource,
     ForumComment,
     ForumPost,
@@ -21,6 +24,7 @@ from app.models import (
     SymptomTrackingLog,
     UserProfile,
 )
+from app.services.admin_analytics_service import get_platform_analytics
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +34,7 @@ DELETE_ORDER = (
     SymptomTrackingLog,
     AIHealthAssistantSession,
     MedicationSupplementReminder,
+    DailyLog,
     CycleHistoryLog,
     PCOSDisorderStatus,
     HealthProfile,
@@ -404,3 +409,186 @@ def db_status():
         return _error_response("db-status", exc)
     except Exception as exc:
         return _error_response("db-status", exc)
+
+
+def get_analytics():
+    days = request.args.get("days", default=30, type=int)
+    _admin_log("analytics", f"days={days}")
+    return jsonify(get_platform_analytics(days=days)), 200
+
+
+def list_users():
+    page = max(1, request.args.get("page", default=1, type=int))
+    per_page = min(max(1, request.args.get("per_page", default=20, type=int)), 100)
+    search = (request.args.get("search") or "").strip()
+
+    query = UserProfile.query.filter(UserProfile.role == "user")
+    if search:
+        like = f"%{search}%"
+        query = query.filter(
+            or_(UserProfile.email.ilike(like), UserProfile.full_name.ilike(like))
+        )
+
+    pagination = query.order_by(UserProfile.registration_date.desc()).paginate(
+        page=page,
+        per_page=per_page,
+        error_out=False,
+    )
+
+    return jsonify(
+        {
+            "users": [user.to_dict() for user in pagination.items],
+            "pagination": {
+                "page": pagination.page,
+                "per_page": pagination.per_page,
+                "total": pagination.total,
+                "pages": pagination.pages,
+            },
+        }
+    ), 200
+
+
+def _csv_response(filename, rows, headers):
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(headers)
+    for row in rows:
+        writer.writerow(row)
+
+    response = make_response(buffer.getvalue())
+    response.headers["Content-Type"] = "text/csv; charset=utf-8"
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+def export_report(report_type):
+    report_type = (report_type or "").strip().lower()
+    _admin_log("export-report", report_type)
+
+    if report_type == "users":
+        rows = []
+        for user in UserProfile.query.filter_by(role="user").order_by(UserProfile.id.asc()).all():
+            rows.append(
+                [
+                    user.id,
+                    user.full_name,
+                    user.email,
+                    user.language_preference,
+                    user.country or "",
+                    user.timezone,
+                    user.onboarding_completed,
+                    user.registration_date.isoformat() if user.registration_date else "",
+                ]
+            )
+        return _csv_response(
+            "penmozhi-users.csv",
+            rows,
+            [
+                "id",
+                "full_name",
+                "email",
+                "language_preference",
+                "country",
+                "timezone",
+                "onboarding_completed",
+                "registration_date",
+            ],
+        )
+
+    if report_type == "cycles":
+        rows = []
+        logs = (
+            db.session.query(CycleHistoryLog, UserProfile.email)
+            .join(UserProfile, CycleHistoryLog.profile_id == UserProfile.id)
+            .order_by(CycleHistoryLog.cycle_start_date.desc())
+            .all()
+        )
+        for log, email in logs:
+            rows.append(
+                [
+                    log.profile_id,
+                    email,
+                    log.cycle_start_date.isoformat() if log.cycle_start_date else "",
+                    log.cycle_end_date.isoformat() if log.cycle_end_date else "",
+                    log.flow_intensity,
+                    (log.notes or "").replace("\n", " "),
+                ]
+            )
+        return _csv_response(
+            "penmozhi-cycles.csv",
+            rows,
+            ["profile_id", "email", "cycle_start_date", "cycle_end_date", "flow_intensity", "notes"],
+        )
+
+    if report_type == "symptoms":
+        rows = []
+        logs = (
+            db.session.query(SymptomTrackingLog, UserProfile.email)
+            .join(UserProfile, SymptomTrackingLog.profile_id == UserProfile.id)
+            .order_by(SymptomTrackingLog.date_time.desc())
+            .all()
+        )
+        for log, email in logs:
+            rows.append(
+                [
+                    log.profile_id,
+                    email,
+                    log.date_time.isoformat() if log.date_time else "",
+                    log.category,
+                    log.pain_severity,
+                    log.mood_status or "",
+                    log.sleep_metrics or "",
+                ]
+            )
+        return _csv_response(
+            "penmozhi-symptoms.csv",
+            rows,
+            ["profile_id", "email", "date_time", "category", "pain_severity", "mood_status", "sleep_metrics"],
+        )
+
+    if report_type == "daily_logs":
+        rows = []
+        logs = (
+            db.session.query(DailyLog, UserProfile.email)
+            .join(UserProfile, DailyLog.profile_id == UserProfile.id)
+            .order_by(DailyLog.log_date.desc())
+            .all()
+        )
+        for log, email in logs:
+            rows.append(
+                [
+                    log.profile_id,
+                    email,
+                    log.log_date.isoformat() if log.log_date else "",
+                    log.flow_level or "",
+                    log.pain_level or "",
+                    log.mood or "",
+                    log.energy or "",
+                    log.sleep_hours if log.sleep_hours is not None else "",
+                    log.exercise or "",
+                ]
+            )
+        return _csv_response(
+            "penmozhi-daily-logs.csv",
+            rows,
+            [
+                "profile_id",
+                "email",
+                "log_date",
+                "flow_level",
+                "pain_level",
+                "mood",
+                "energy",
+                "sleep_hours",
+                "exercise",
+            ],
+        )
+
+    if report_type == "summary":
+        analytics = get_platform_analytics(days=30)
+        summary = analytics["summary"]
+        rows = [[key, value] for key, value in summary.items()]
+        rows.append(["generated_at", datetime.utcnow().isoformat()])
+        return _csv_response("penmozhi-summary.csv", rows, ["metric", "value"])
+
+    return jsonify({"success": False, "error": "Invalid export type."}), 400

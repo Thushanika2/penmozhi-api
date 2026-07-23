@@ -58,3 +58,21 @@ def seed_admin():
 @roles_required("admin")
 def db_status():
     return ctrl.db_status()
+
+
+@admin_bp.route("/analytics", methods=["GET"])
+@roles_required("admin")
+def analytics():
+    return ctrl.get_analytics()
+
+
+@admin_bp.route("/users", methods=["GET"])
+@roles_required("admin")
+def list_users():
+    return ctrl.list_users()
+
+
+@admin_bp.route("/export/<report_type>", methods=["GET"])
+@roles_required("admin")
+def export_report(report_type):
+    return ctrl.export_report(report_type)
