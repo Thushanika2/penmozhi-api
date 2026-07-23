@@ -70,6 +70,7 @@ def main() -> int:
             "smoking TINYINT(1) NOT NULL DEFAULT 0",
             "alcohol TINYINT(1) NOT NULL DEFAULT 0",
             "trying_to_conceive TINYINT(1) NOT NULL DEFAULT 0",
+            "is_teenager TINYINT(1) NOT NULL DEFAULT 0",
             "is_pregnant TINYINT(1) NOT NULL DEFAULT 0",
             "is_breastfeeding TINYINT(1) NOT NULL DEFAULT 0",
             "using_birth_control TINYINT(1) NOT NULL DEFAULT 0",

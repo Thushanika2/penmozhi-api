@@ -39,6 +39,7 @@ class HealthProfile(db.Model):
     alcohol = db.Column(db.Boolean, nullable=False, default=False)
 
     # Pregnancy & birth control (Step 6)
+    is_teenager = db.Column(db.Boolean, nullable=False, default=False)
     trying_to_conceive = db.Column(db.Boolean, nullable=False, default=False)
     is_pregnant = db.Column(db.Boolean, nullable=False, default=False)
     is_breastfeeding = db.Column(db.Boolean, nullable=False, default=False)
@@ -87,6 +88,7 @@ class HealthProfile(db.Model):
             "smoking": self.smoking,
             "alcohol": self.alcohol,
             "trying_to_conceive": self.trying_to_conceive,
+            "is_teenager": self.is_teenager,
             "is_pregnant": self.is_pregnant,
             "is_breastfeeding": self.is_breastfeeding,
             "using_birth_control": self.using_birth_control,

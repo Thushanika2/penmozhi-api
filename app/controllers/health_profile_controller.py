@@ -51,6 +51,7 @@ def _apply_health_profile_fields(health_profile, validated):
     bool_fields = [
         "smoking",
         "alcohol",
+        "is_teenager",
         "trying_to_conceive",
         "is_pregnant",
         "is_breastfeeding",

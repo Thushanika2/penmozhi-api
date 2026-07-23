@@ -33,6 +33,7 @@ class HealthProfileSettingsSchema(Schema):
     smoking = fields.Bool(required=False)
     alcohol = fields.Bool(required=False)
 
+    is_teenager = fields.Bool(required=False)
     trying_to_conceive = fields.Bool(required=False)
     is_pregnant = fields.Bool(required=False)
     is_breastfeeding = fields.Bool(required=False)

@@ -99,6 +99,7 @@ class OnboardingSchema(Schema):
     alcohol = fields.Bool(required=True)
 
     # Step 6 — Pregnancy
+    is_teenager = fields.Bool(required=True)
     trying_to_conceive = fields.Bool(required=True)
     is_pregnant = fields.Bool(required=True)
     is_breastfeeding = fields.Bool(required=True)

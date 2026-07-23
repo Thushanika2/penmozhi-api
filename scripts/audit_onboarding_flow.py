@@ -75,6 +75,7 @@ def main() -> int:
         "smoking": False,
         "alcohol": False,
         "trying_to_conceive": False,
+        "is_teenager": False,
         "is_pregnant": False,
         "is_breastfeeding": False,
         "using_birth_control": False,

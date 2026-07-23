@@ -104,6 +104,7 @@ def complete_onboarding():
         health_profile.stress_level = validated["stress_level"]
         health_profile.smoking = validated["smoking"]
         health_profile.alcohol = validated["alcohol"]
+        health_profile.is_teenager = validated["is_teenager"]
         health_profile.trying_to_conceive = validated["trying_to_conceive"]
         health_profile.is_pregnant = validated["is_pregnant"]
         health_profile.is_breastfeeding = validated["is_breastfeeding"]
