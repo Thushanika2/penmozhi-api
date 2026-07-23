@@ -10,6 +10,7 @@ class CycleHistoryLog(db.Model):
     cycle_start_date = db.Column(db.Date, nullable=False)
     cycle_end_date = db.Column(db.Date, nullable=False)
     flow_intensity = db.Column(db.String(50), nullable=False)
+    notes = db.Column(db.Text, nullable=True)
     predicted_next_period_date = db.Column(db.Date, nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
 
@@ -26,6 +27,7 @@ class CycleHistoryLog(db.Model):
                 self.cycle_end_date.isoformat() if self.cycle_end_date else None
             ),
             "flow_intensity": self.flow_intensity,
+            "notes": self.notes,
             "predicted_next_period_date": (
                 self.predicted_next_period_date.isoformat()
                 if self.predicted_next_period_date

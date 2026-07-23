@@ -1,0 +1,46 @@
+-- Run against your Penmozhi MySQL database after deploying Module 1 (Auth + Onboarding)
+
+ALTER TABLE user_profiles
+  ADD COLUMN IF NOT EXISTS country VARCHAR(100) NULL,
+  ADD COLUMN IF NOT EXISTS timezone VARCHAR(64) NOT NULL DEFAULT 'Asia/Kolkata',
+  ADD COLUMN IF NOT EXISTS onboarding_completed TINYINT(1) NOT NULL DEFAULT 0;
+
+ALTER TABLE health_profiles
+  ADD COLUMN IF NOT EXISTS menarche_age INT NULL,
+  ADD COLUMN IF NOT EXISTS average_cycle_length INT NULL DEFAULT 28,
+  ADD COLUMN IF NOT EXISTS average_period_length INT NULL DEFAULT 5,
+  ADD COLUMN IF NOT EXISTS last_period_start DATE NULL,
+  ADD COLUMN IF NOT EXISTS typical_flow VARCHAR(20) NULL,
+  ADD COLUMN IF NOT EXISTS cycle_regularity VARCHAR(20) NULL,
+  ADD COLUMN IF NOT EXISTS common_symptoms JSON NULL,
+  ADD COLUMN IF NOT EXISTS health_conditions JSON NULL,
+  ADD COLUMN IF NOT EXISTS sleep_hours FLOAT NULL,
+  ADD COLUMN IF NOT EXISTS water_intake_liters FLOAT NULL,
+  ADD COLUMN IF NOT EXISTS exercise_frequency VARCHAR(30) NULL,
+  ADD COLUMN IF NOT EXISTS stress_level VARCHAR(20) NULL,
+  ADD COLUMN IF NOT EXISTS smoking TINYINT(1) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS alcohol TINYINT(1) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS trying_to_conceive TINYINT(1) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS is_pregnant TINYINT(1) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS is_breastfeeding TINYINT(1) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS using_birth_control TINYINT(1) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS birth_control_type VARCHAR(50) NULL,
+  ADD COLUMN IF NOT EXISTS notify_period TINYINT(1) NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS notify_ovulation TINYINT(1) NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS notify_medication TINYINT(1) NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS notify_daily_health TINYINT(1) NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS updated_at DATETIME NULL;
+
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  token_hash VARCHAR(255) NOT NULL UNIQUE,
+  expires_at DATETIME NOT NULL,
+  used_at DATETIME NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES user_profiles(id)
+);
+
+UPDATE user_profiles SET onboarding_completed = 1 WHERE onboarding_completed = 0 AND id IN (
+  SELECT profile_id FROM health_profiles WHERE last_period_start IS NOT NULL
+);
