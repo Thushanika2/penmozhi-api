@@ -1,76 +1,39 @@
-import re
+import secrets
+from datetime import timedelta
 
-from flask import jsonify, request
-from flask_jwt_extended import create_access_token, current_user
+from flask import current_app, jsonify, request
+from flask_jwt_extended import create_access_token, create_refresh_token, current_user
+from marshmallow import ValidationError as MarshmallowValidationError
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.api_responses import error_response, message_response, validation_errors
 from app.extensions import db
 from app.models.health_profile_model import HealthProfile
+from app.models.password_reset_token_model import PasswordResetToken
 from app.models.pcos_disorder_status_model import PCOSDisorderStatus
 from app.models.user_profile_model import UserProfile
-from app.utils import LANGUAGE_PREFERENCES, parse_date
+from app.schemas.auth_schema import (
+    ForgotPasswordSchema,
+    LoginSchema,
+    RefreshTokenSchema,
+    RegisterSchema,
+    ResetPasswordSchema,
+    UpdateProfileSchema,
+)
+from app.utils import LANGUAGE_PREFERENCES, parse_date, utc_now
 
 
-def _validate_register_payload(data):
-    errors = []
-    if not data:
-        return ["Request body is required."]
-
-    full_name = data.get("full_name")
-    if full_name is None or str(full_name).strip() == "":
-        errors.append("full_name is required.")
-
-    email = data.get("email")
-    if email is None or str(email).strip() == "":
-        errors.append("email is required.")
-    else:
-        email_str = str(email).strip()
-        email_regex = r"^[\w\.-]+@[\w\.-]+\.\w+$"
-        if not re.match(email_regex, email_str):
-            errors.append("Invalid email format.")
-        elif UserProfile.query.filter_by(email=email_str).first():
-            errors.append("Email address already exists.")
-
-    password = data.get("password")
-    if password is None or str(password).strip() == "":
-        errors.append("password is required.")
-    elif len(str(password)) < 6:
-        errors.append("password must be at least 6 characters long.")
-
-    date_of_birth = data.get("date_of_birth")
-    if date_of_birth is None or str(date_of_birth).strip() == "":
-        errors.append("date_of_birth is required.")
-    else:
-        try:
-            parse_date(date_of_birth)
-        except ValueError:
-            errors.append("date_of_birth must be a valid date (YYYY-MM-DD).")
-
-    language = str(data.get("language_preference", "english")).strip().lower() or "english"
-    if language not in LANGUAGE_PREFERENCES:
-        errors.append("language_preference must be 'tamil' or 'english'.")
-
-    role = str(data.get("role", "user")).strip().lower() or "user"
-    if role == "admin":
-        errors.append("Admin accounts can only be created via database seeders.")
-    elif role != "user":
-        errors.append("role must be 'user'.")
-
-    return errors
+def _issue_tokens(user):
+    access_token = create_access_token(identity=str(user.id))
+    refresh_token = create_refresh_token(identity=str(user.id))
+    return access_token, refresh_token
 
 
-def _validate_login_payload(data):
-    errors = []
-    if not data:
-        return ["Request body is required."]
-
-    if data.get("email") is None or str(data.get("email")).strip() == "":
-        errors.append("email is required.")
-
-    if data.get("password") is None or str(data.get("password")).strip() == "":
-        errors.append("password is required.")
-
-    return errors
+def _schema_errors(schema_err):
+    return validation_errors(
+        [("validation.invalid_payload", str(msg)) for msgs in schema_err.messages.values() for msg in msgs],
+        400,
+    )
 
 
 def register():
@@ -78,21 +41,33 @@ def register():
     if not data:
         return error_response("request.body_required", "Request body is required.", 400)
 
-    errors = _validate_register_payload(data)
-    if errors:
-        return validation_errors([("validation.invalid_payload", msg) for msg in errors], 400)
+    schema = RegisterSchema()
+    try:
+        validated = schema.load(data)
+    except MarshmallowValidationError as err:
+        return _schema_errors(err)
+
+    email_str = str(validated["email"]).strip()
+    if UserProfile.query.filter_by(email=email_str).first():
+        return validation_errors([("validation.email_exists", "Email address already exists.")], 400)
+
+    language = str(validated.get("language_preference", "english")).strip().lower() or "english"
+    if language not in LANGUAGE_PREFERENCES:
+        return validation_errors(
+            [("validation.language_invalid", "language_preference must be 'tamil' or 'english'.")],
+            400,
+        )
 
     try:
         user = UserProfile(
-            full_name=str(data.get("full_name")).strip(),
-            date_of_birth=parse_date(data.get("date_of_birth")),
-            email=str(data.get("email")).strip(),
-            language_preference=str(
-                data.get("language_preference", "english")
-            ).strip().lower() or "english",
+            full_name=str(validated["full_name"]).strip(),
+            date_of_birth=validated["date_of_birth"],
+            email=email_str,
+            language_preference=language,
             role="user",
+            onboarding_completed=False,
         )
-        user.set_password(str(data.get("password")))
+        user.set_password(str(validated["password"]))
         db.session.add(user)
         db.session.flush()
 
@@ -123,21 +98,24 @@ def login():
     if not data:
         return error_response("request.body_required", "Request body is required.", 400)
 
-    errors = _validate_login_payload(data)
-    if errors:
-        return validation_errors([("validation.invalid_payload", msg) for msg in errors], 400)
+    schema = LoginSchema()
+    try:
+        validated = schema.load(data)
+    except MarshmallowValidationError as err:
+        return _schema_errors(err)
 
     try:
-        email_str = str(data.get("email")).strip()
+        email_str = str(validated["email"]).strip()
         user = UserProfile.query.filter_by(email=email_str).first()
 
-        if not user or not user.check_password(str(data.get("password"))):
+        if not user or not user.check_password(str(validated["password"])):
             return error_response("auth.invalid_credentials", "Invalid email or password.", 401)
 
-        access_token = create_access_token(identity=str(user.id))
+        access_token, refresh_token = _issue_tokens(user)
         return jsonify({
             "message": "Login successful.",
             "access_token": access_token,
+            "refresh_token": refresh_token,
             "user": user.to_dict(),
         }), 200
     except Exception:
@@ -186,6 +164,120 @@ def update_profile():
             "Profile updated successfully.",
             200,
             user=user.to_dict(),
+        )
+    except Exception:
+        db.session.rollback()
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
+
+
+def refresh():
+    data = request.get_json(silent=True) or {}
+    schema = RefreshTokenSchema()
+    try:
+        validated = schema.load(data)
+    except MarshmallowValidationError as err:
+        return _schema_errors(err)
+
+    from flask_jwt_extended import decode_token
+
+    try:
+        decoded = decode_token(validated["refresh_token"])
+        user_id = int(decoded["sub"])
+        user = db.session.get(UserProfile, user_id)
+        if not user:
+            return error_response("auth.user_not_found", "User not found.", 404)
+
+        access_token, refresh_token = _issue_tokens(user)
+        return jsonify({
+            "message_code": "auth.token_refreshed",
+            "message": "Token refreshed successfully.",
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "user": user.to_dict(),
+        }), 200
+    except Exception:
+        return error_response("auth.invalid_refresh_token", "Invalid or expired refresh token.", 401)
+
+
+def forgot_password():
+    data = request.get_json(silent=True)
+    if not data:
+        return error_response("request.body_required", "Request body is required.", 400)
+
+    schema = ForgotPasswordSchema()
+    try:
+        validated = schema.load(data)
+    except MarshmallowValidationError as err:
+        return _schema_errors(err)
+
+    email_str = str(validated["email"]).strip()
+    user = UserProfile.query.filter_by(email=email_str).first()
+
+    response = {
+        "message_code": "auth.reset_email_sent",
+        "message": "If an account exists for this email, a reset link has been sent.",
+    }
+
+    if not user:
+        return jsonify(response), 200
+
+    raw_token = secrets.token_urlsafe(32)
+    token = PasswordResetToken(
+        user_id=user.id,
+        token_hash=generate_password_hash(raw_token),
+        expires_at=utc_now() + timedelta(hours=1),
+    )
+    db.session.add(token)
+    db.session.commit()
+
+    if current_app.config.get("DEBUG"):
+        response["reset_token"] = raw_token
+
+    return jsonify(response), 200
+
+
+def reset_password():
+    data = request.get_json(silent=True)
+    if not data:
+        return error_response("request.body_required", "Request body is required.", 400)
+
+    schema = ResetPasswordSchema()
+    try:
+        validated = schema.load(data)
+    except MarshmallowValidationError as err:
+        return _schema_errors(err)
+
+    now = utc_now()
+    tokens = (
+        PasswordResetToken.query.filter(
+            PasswordResetToken.used_at.is_(None),
+            PasswordResetToken.expires_at > now,
+        )
+        .order_by(PasswordResetToken.created_at.desc())
+        .all()
+    )
+
+    matched = None
+    for entry in tokens:
+        if check_password_hash(entry.token_hash, validated["token"]):
+            matched = entry
+            break
+
+    if not matched:
+        return error_response("auth.invalid_reset_token", "Invalid or expired reset token.", 400)
+
+    user = db.session.get(UserProfile, matched.user_id)
+    if not user:
+        return error_response("auth.user_not_found", "User not found.", 404)
+
+    try:
+        user.set_password(str(validated["password"]))
+        matched.used_at = now
+        db.session.commit()
+        return message_response(
+            "auth.password_reset_success",
+            "Password reset successfully. You can now sign in.",
+            200,
         )
     except Exception:
         db.session.rollback()

@@ -26,6 +26,8 @@ def create_app():
         EducationalResource,
         ForumPost,
         ForumComment,
+        DailyLog,
+        PasswordResetToken,
     )
 
     @jwt.user_lookup_loader

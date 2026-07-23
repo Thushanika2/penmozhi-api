@@ -8,6 +8,8 @@ from app.models.pcos_disorder_status_model import PCOSDisorderStatus
 from app.models.educational_resource_model import EducationalResource
 from app.models.forum_post_model import ForumPost
 from app.models.forum_comment_model import ForumComment
+from app.models.daily_log_model import DailyLog
+from app.models.password_reset_token_model import PasswordResetToken
 
 __all__ = [
     "UserProfile",
@@ -20,4 +22,6 @@ __all__ = [
     "EducationalResource",
     "ForumPost",
     "ForumComment",
+    "DailyLog",
+    "PasswordResetToken",
 ]

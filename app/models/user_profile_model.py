@@ -12,6 +12,9 @@ class UserProfile(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     language_preference = db.Column(db.String(20), nullable=False, default="english")
+    country = db.Column(db.String(100), nullable=True)
+    timezone = db.Column(db.String(64), nullable=False, default="Asia/Kolkata")
+    onboarding_completed = db.Column(db.Boolean, nullable=False, default=False)
     role = db.Column(db.String(20), nullable=False, default="user")
     registration_date = db.Column(db.DateTime, default=utc_now)
 
@@ -51,6 +54,16 @@ class UserProfile(db.Model):
         back_populates="user_profile",
         cascade="all, delete-orphan",
     )
+    password_reset_tokens = db.relationship(
+        "PasswordResetToken",
+        back_populates="user_profile",
+        cascade="all, delete-orphan",
+    )
+    daily_logs = db.relationship(
+        "DailyLog",
+        back_populates="user_profile",
+        cascade="all, delete-orphan",
+    )
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -65,6 +78,9 @@ class UserProfile(db.Model):
             "date_of_birth": self.date_of_birth.isoformat() if self.date_of_birth else None,
             "email": self.email,
             "language_preference": self.language_preference,
+            "country": self.country,
+            "timezone": self.timezone,
+            "onboarding_completed": self.onboarding_completed,
             "role": self.role,
             "registration_date": (
                 self.registration_date.isoformat() if self.registration_date else None

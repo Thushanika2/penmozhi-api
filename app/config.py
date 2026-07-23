@@ -91,6 +91,9 @@ class Config:
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(
         minutes=int(os.getenv("JWT_ACCESS_TOKEN_EXPIRES_MINUTES", "1440"))
     )
+    JWT_REFRESH_TOKEN_EXPIRES = timedelta(
+        days=int(os.getenv("JWT_REFRESH_TOKEN_EXPIRES_DAYS", "30"))
+    )
 
     DEBUG = os.getenv("FLASK_DEBUG", "False").lower() in ("true", "1", "yes")
     ADMIN_NAME = os.getenv("ADMIN_NAME")

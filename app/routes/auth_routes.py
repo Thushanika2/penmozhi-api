@@ -32,3 +32,18 @@ def profile():
 @jwt_required_user
 def update_profile():
     return ctrl.update_profile()
+
+
+@auth_bp.route("/refresh", methods=["POST"])
+def refresh():
+    return ctrl.refresh()
+
+
+@auth_bp.route("/forgot-password", methods=["POST"])
+def forgot_password():
+    return ctrl.forgot_password()
+
+
+@auth_bp.route("/reset-password", methods=["POST"])
+def reset_password():
+    return ctrl.reset_password()
