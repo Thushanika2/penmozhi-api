@@ -2,7 +2,7 @@ from flask import Flask, jsonify
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from app.config import Config
-from app.extensions import db, jwt, migrate
+from app.extensions import db, jwt, limiter, migrate
 from app.routes import register_blueprints
 
 
@@ -14,6 +14,7 @@ def create_app():
     db.init_app(app)
     jwt.init_app(app)
     migrate.init_app(app, db)
+    limiter.init_app(app)
 
     from app.models import (  # noqa: F401
         UserProfile,

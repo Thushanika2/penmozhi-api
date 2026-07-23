@@ -21,6 +21,7 @@ from app.schemas.auth_schema import (
     ResetPasswordSchema,
     UpdateProfileSchema,
 )
+from app.services.email_service import send_password_reset_email
 from app.utils import LANGUAGE_PREFERENCES, parse_date, utc_now
 
 
@@ -287,7 +288,8 @@ def forgot_password():
     db.session.add(token)
     db.session.commit()
 
-    if current_app.config.get("DEBUG"):
+    email_sent = send_password_reset_email(user.email, raw_token)
+    if current_app.config.get("DEBUG") and not email_sent:
         response["reset_token"] = raw_token
 
     return jsonify(response), 200
