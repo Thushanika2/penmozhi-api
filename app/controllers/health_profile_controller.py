@@ -1,9 +1,12 @@
 from flask import jsonify, request
 from flask_jwt_extended import current_user
+from marshmallow import ValidationError as MarshmallowValidationError
 
 from app.api_responses import error_response, message_response, validation_errors
 from app.extensions import db
 from app.models.health_profile_model import HealthProfile
+from app.models.pcos_disorder_status_model import PCOSDisorderStatus
+from app.schemas.profile_schema import HealthProfileSettingsSchema
 from app.utils import calculate_bmi
 
 
@@ -16,28 +19,76 @@ def _get_owned_health_profile(health_profile_id):
     return health_profile, None
 
 
-def _validate_health_profile_payload(data):
-    errors = []
-    if not data:
-        return ["Request body is required."]
+def _schema_errors(schema_err):
+    return validation_errors(
+        [("validation.invalid_payload", str(msg)) for msgs in schema_err.messages.values() for msg in msgs],
+        400,
+    )
 
-    if "weight" in data and data.get("weight") is not None and str(data.get("weight")).strip() != "":
-        try:
-            weight = float(data.get("weight"))
-            if weight <= 0:
-                errors.append("weight must be a positive number.")
-        except (TypeError, ValueError):
-            errors.append("weight must be a number.")
 
-    if "height" in data and data.get("height") is not None and str(data.get("height")).strip() != "":
-        try:
-            height = float(data.get("height"))
-            if height <= 0:
-                errors.append("height must be a positive number.")
-        except (TypeError, ValueError):
-            errors.append("height must be a number.")
+def _apply_health_profile_fields(health_profile, validated):
+    simple_fields = [
+        "weight",
+        "height",
+        "nutritional_needs",
+        "health_risks",
+        "menarche_age",
+        "average_cycle_length",
+        "average_period_length",
+        "last_period_start",
+        "typical_flow",
+        "cycle_regularity",
+        "sleep_hours",
+        "water_intake_liters",
+        "exercise_frequency",
+        "stress_level",
+        "birth_control_type",
+    ]
+    for field in simple_fields:
+        if field in validated:
+            setattr(health_profile, field, validated[field])
 
-    return errors
+    bool_fields = [
+        "smoking",
+        "alcohol",
+        "trying_to_conceive",
+        "is_pregnant",
+        "is_breastfeeding",
+        "using_birth_control",
+        "notify_period",
+        "notify_ovulation",
+        "notify_medication",
+        "notify_daily_health",
+    ]
+    for field in bool_fields:
+        if field in validated:
+            setattr(health_profile, field, validated[field])
+
+    if "common_symptoms" in validated:
+        health_profile.common_symptoms = validated["common_symptoms"]
+    if "health_conditions" in validated:
+        health_profile.health_conditions = validated["health_conditions"]
+
+    health_profile.calculated_bmi = calculate_bmi(health_profile.weight, health_profile.height)
+
+    if "health_conditions" in validated:
+        conditions = validated["health_conditions"] or []
+        pcos = PCOSDisorderStatus.query.filter_by(health_profile_id=health_profile.id).first()
+        if "pcos" in conditions:
+            if pcos:
+                pcos.disorder_type = "pcos"
+                pcos.diagnosis_status = "diagnosed"
+            else:
+                db.session.add(
+                    PCOSDisorderStatus(
+                        health_profile_id=health_profile.id,
+                        disorder_type="pcos",
+                        diagnosis_status="diagnosed",
+                    )
+                )
+        elif pcos and pcos.disorder_type == "pcos":
+            pcos.disorder_type = "none"
+            pcos.diagnosis_status = "not_diagnosed"
 
 
 def get_health_profile(health_profile_id):
@@ -56,36 +107,20 @@ def update_health_profile(health_profile_id):
     if not data:
         return error_response("request.body_required", "Request body is required.", 400)
 
-    errors = _validate_health_profile_payload(data)
-    if errors:
-        return validation_errors([("validation.invalid_payload", msg) for msg in errors], 400)
+    schema = HealthProfileSettingsSchema()
+    try:
+        validated = schema.load(data, partial=True)
+    except MarshmallowValidationError as err:
+        return _schema_errors(err)
+
+    if not validated:
+        return validation_errors(
+            [("validation.no_fields", "At least one health profile field is required.")],
+            400,
+        )
 
     try:
-        if "weight" in data:
-            value = data.get("weight")
-            health_profile.weight = (
-                float(value) if value is not None and str(value).strip() != "" else None
-            )
-        if "height" in data:
-            value = data.get("height")
-            health_profile.height = (
-                float(value) if value is not None and str(value).strip() != "" else None
-            )
-        if "nutritional_needs" in data:
-            value = data.get("nutritional_needs")
-            health_profile.nutritional_needs = (
-                str(value).strip() if value is not None and str(value).strip() != "" else None
-            )
-        if "health_risks" in data:
-            value = data.get("health_risks")
-            health_profile.health_risks = (
-                str(value).strip() if value is not None and str(value).strip() != "" else None
-            )
-
-        health_profile.calculated_bmi = calculate_bmi(
-            health_profile.weight,
-            health_profile.height,
-        )
+        _apply_health_profile_fields(health_profile, validated)
         db.session.commit()
 
         return message_response(

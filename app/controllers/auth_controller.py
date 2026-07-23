@@ -13,6 +13,7 @@ from app.models.password_reset_token_model import PasswordResetToken
 from app.models.pcos_disorder_status_model import PCOSDisorderStatus
 from app.models.user_profile_model import UserProfile
 from app.schemas.auth_schema import (
+    DeleteAccountSchema,
     ForgotPasswordSchema,
     LoginSchema,
     RefreshTokenSchema,
@@ -148,22 +149,78 @@ def update_profile():
     if not data:
         return error_response("request.body_required", "Request body is required.", 400)
 
-    language = data.get("language_preference")
-    if language is None:
-        return validation_errors([("validation.language_required", "language_preference is required.")], 400)
+    schema = UpdateProfileSchema()
+    try:
+        validated = schema.load(data, partial=True)
+    except MarshmallowValidationError as err:
+        return _schema_errors(err)
 
-    language = str(language).strip().lower()
-    if language not in LANGUAGE_PREFERENCES:
-        return validation_errors([("validation.language_invalid", "language_preference must be 'tamil' or 'english'.")], 400)
+    if not validated:
+        return validation_errors(
+            [("validation.no_fields", "At least one profile field is required.")],
+            400,
+        )
+
+    if "language_preference" in validated:
+        language = str(validated["language_preference"]).strip().lower()
+        if language not in LANGUAGE_PREFERENCES:
+            return validation_errors(
+                [("validation.language_invalid", "language_preference must be 'tamil' or 'english'.")],
+                400,
+            )
+        user.language_preference = language
+
+    if "full_name" in validated:
+        user.full_name = str(validated["full_name"]).strip()
+    if "country" in validated:
+        country = validated["country"]
+        user.country = str(country).strip() if country else None
+    if "timezone" in validated:
+        user.timezone = str(validated["timezone"]).strip()
+    if "date_of_birth" in validated:
+        user.date_of_birth = validated["date_of_birth"]
 
     try:
-        user.language_preference = language
         db.session.commit()
         return message_response(
             "auth.profile_updated",
             "Profile updated successfully.",
             200,
             user=user.to_dict(),
+        )
+    except Exception:
+        db.session.rollback()
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
+
+
+def delete_account():
+    user = current_user
+    if not user:
+        return error_response("auth.user_not_found", "User not found.", 404)
+
+    if user.role == "admin":
+        return error_response("auth.admin_delete_forbidden", "Admin accounts cannot be deleted.", 403)
+
+    data = request.get_json(silent=True)
+    if not data:
+        return error_response("request.body_required", "Request body is required.", 400)
+
+    schema = DeleteAccountSchema()
+    try:
+        validated = schema.load(data)
+    except MarshmallowValidationError as err:
+        return _schema_errors(err)
+
+    if not user.check_password(str(validated["password"])):
+        return error_response("auth.invalid_credentials", "Invalid email or password.", 401)
+
+    try:
+        db.session.delete(user)
+        db.session.commit()
+        return message_response(
+            "auth.account_deleted",
+            "Your account has been permanently deleted.",
+            200,
         )
     except Exception:
         db.session.rollback()

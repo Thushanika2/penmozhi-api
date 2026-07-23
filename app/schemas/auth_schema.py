@@ -32,3 +32,8 @@ class UpdateProfileSchema(Schema):
     full_name = fields.Str(required=False, validate=validate.Length(min=2, max=255))
     country = fields.Str(required=False, validate=validate.Length(max=100))
     timezone = fields.Str(required=False, validate=validate.Length(max=64))
+    date_of_birth = fields.Date(required=False, format="%Y-%m-%d")
+
+
+class DeleteAccountSchema(Schema):
+    password = fields.Str(required=True, validate=validate.Length(min=1))

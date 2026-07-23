@@ -34,6 +34,12 @@ def update_profile():
     return ctrl.update_profile()
 
 
+@auth_bp.route("/account", methods=["DELETE"])
+@jwt_required_user
+def delete_account():
+    return ctrl.delete_account()
+
+
 @auth_bp.route("/refresh", methods=["POST"])
 def refresh():
     return ctrl.refresh()
