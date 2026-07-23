@@ -143,6 +143,16 @@ def cmd_seed(app):
     return 0
 
 
+def cmd_apply_manual(app):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parent / "scripts" / "apply_manual_migrations.py"
+    result = subprocess.run([sys.executable, str(script)], check=False)
+    return result.returncode
+
+
 def main():
     parser = argparse.ArgumentParser(description="Penmozhi database management")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -157,6 +167,8 @@ def main():
     )
     sub.add_parser("reset", help="Drop and recreate all tables (development only)")
     sub.add_parser("seed", help="Run all seeders")
+
+    sub.add_parser("apply-manual", help="Apply manual SQL migrations (onboarding + daily logs)")
 
     migrate_parser = sub.add_parser("migrate", help="Create a new migration")
     migrate_parser.add_argument(
@@ -181,6 +193,7 @@ def main():
         "truncate": lambda: cmd_truncate(app),
         "reset": lambda: cmd_reset(app),
         "seed": lambda: cmd_seed(app),
+        "apply-manual": lambda: cmd_apply_manual(app),
     }
 
     return commands[args.command]()
