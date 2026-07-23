@@ -7,4 +7,8 @@ from flask_sqlalchemy import SQLAlchemy
 db = SQLAlchemy()
 jwt = JWTManager()
 migrate = Migrate()
-limiter = Limiter(key_func=get_remote_address, default_limits=["300 per hour"])
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=["300 per hour"],
+    storage_uri="memory://",
+)
