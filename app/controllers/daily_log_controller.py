@@ -148,6 +148,18 @@ def delete_log(log_id):
         return error_response("server.internal_error", "An internal server error occurred.", 500)
 
 
+def _calendar_reference_date(year: int, month: int) -> date:
+    """Pick a reference date so cycle predictions match the month being viewed."""
+    today = date.today()
+    month_start = date(year, month, 1)
+    month_end = date(year, month, monthrange(year, month)[1])
+    if month_start <= today <= month_end:
+        return today
+    if month_end < today:
+        return month_end
+    return month_start
+
+
 def get_calendar():
     year = request.args.get("year", type=int)
     month = request.args.get("month", type=int)
@@ -156,6 +168,7 @@ def get_calendar():
 
     month_start = date(year, month, 1)
     month_end = date(year, month, monthrange(year, month)[1])
+    reference_date = _calendar_reference_date(year, month)
 
     cycles = current_user.cycle_history_logs or []
     period_days = set()
@@ -165,7 +178,7 @@ def get_calendar():
                 if month_start <= d <= month_end:
                     period_days.add(d.isoformat())
 
-    insights = compute_cycle_insights(current_user, month_end)
+    insights = compute_cycle_insights(current_user, reference_date)
     predicted_period = set()
     fertile_days = set()
     ovulation_days = set()
