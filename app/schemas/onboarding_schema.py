@@ -41,6 +41,11 @@ BIRTH_CONTROL_TYPES = (
 )
 
 
+class PeriodHistoryEntrySchema(Schema):
+    period_start = fields.Date(required=True, format="%Y-%m-%d")
+    flow = fields.Str(required=True, validate=validate.OneOf(FLOW_LEVELS))
+
+
 class OnboardingSchema(Schema):
     # Step 1 — Basic information
     full_name = fields.Str(required=True, validate=validate.Length(min=2, max=255))
@@ -52,12 +57,34 @@ class OnboardingSchema(Schema):
     timezone = fields.Str(required=True, validate=validate.Length(max=64))
 
     # Step 2 — Menstrual information
-    menarche_age = fields.Int(required=True, validate=validate.Range(min=8, max=20))
+    knows_last_three_months = fields.Bool(required=True)
+    period_history = fields.List(
+        fields.Nested(PeriodHistoryEntrySchema),
+        required=True,
+    )
     average_cycle_length = fields.Int(required=True, validate=validate.Range(min=21, max=45))
-    average_period_length = fields.Int(required=True, validate=validate.Range(min=2, max=10))
-    last_period_start = fields.Date(required=True, format="%Y-%m-%d")
-    typical_flow = fields.Str(required=True, validate=validate.OneOf(FLOW_LEVELS))
-    cycle_regularity = fields.Str(required=True, validate=validate.OneOf(CYCLE_REGULARITY))
+    menarche_age = fields.Int(
+        required=False,
+        allow_none=True,
+        load_default=None,
+        validate=validate.Range(min=8, max=20),
+    )
+    average_period_length = fields.Int(
+        required=False,
+        load_default=5,
+        validate=validate.Range(min=2, max=10),
+    )
+    last_period_start = fields.Date(required=False, format="%Y-%m-%d", allow_none=True)
+    typical_flow = fields.Str(
+        required=False,
+        validate=validate.OneOf(FLOW_LEVELS),
+        allow_none=True,
+    )
+    cycle_regularity = fields.Str(
+        required=False,
+        load_default="regular",
+        validate=validate.OneOf(CYCLE_REGULARITY),
+    )
 
     # Step 3 & 4 — Multi-select
     common_symptoms = fields.List(fields.Str(), required=True)
@@ -85,7 +112,7 @@ class OnboardingSchema(Schema):
     notify_daily_health = fields.Bool(required=True)
 
     @validates_schema
-    def validate_multi_select(self, data, **_kwargs):
+    def validate_onboarding(self, data, **_kwargs):
         symptoms = data.get("common_symptoms", [])
         invalid_symptoms = [item for item in symptoms if item not in SYMPTOM_OPTIONS]
         if invalid_symptoms:
@@ -113,3 +140,29 @@ class OnboardingSchema(Schema):
             raise ValidationError(
                 {"birth_control_type": ["Invalid birth control type."]}
             )
+
+        knows_three = data.get("knows_last_three_months", False)
+        history = data.get("period_history", [])
+        expected = 3 if knows_three else 1
+        if len(history) != expected:
+            raise ValidationError(
+                {
+                    "period_history": [
+                        f"Provide period details for {expected} month(s)."
+                    ]
+                }
+            )
+
+        for index, entry in enumerate(history):
+            if not entry.get("period_start"):
+                raise ValidationError(
+                    {"period_history": [f"Period start date is required for entry {index + 1}."]}
+                )
+            if entry.get("flow") not in FLOW_LEVELS:
+                raise ValidationError(
+                    {"period_history": [f"Invalid flow for entry {index + 1}."]}
+                )
+
+        sorted_history = sorted(history, key=lambda item: item["period_start"], reverse=True)
+        data["last_period_start"] = sorted_history[0]["period_start"]
+        data["typical_flow"] = sorted_history[0]["flow"]

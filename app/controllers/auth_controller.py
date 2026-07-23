@@ -63,7 +63,6 @@ def register():
     try:
         user = UserProfile(
             full_name=str(validated["full_name"]).strip(),
-            date_of_birth=validated["date_of_birth"],
             email=email_str,
             language_preference=language,
             role="user",

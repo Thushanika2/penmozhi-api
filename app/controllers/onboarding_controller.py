@@ -90,12 +90,12 @@ def complete_onboarding():
         health_profile.height = validated["height"]
         health_profile.weight = validated["weight"]
         health_profile.calculated_bmi = bmi
-        health_profile.menarche_age = validated["menarche_age"]
+        health_profile.menarche_age = validated.get("menarche_age")
         health_profile.average_cycle_length = validated["average_cycle_length"]
-        health_profile.average_period_length = validated["average_period_length"]
+        health_profile.average_period_length = validated.get("average_period_length", 5)
         health_profile.last_period_start = validated["last_period_start"]
         health_profile.typical_flow = validated["typical_flow"]
-        health_profile.cycle_regularity = validated["cycle_regularity"]
+        health_profile.cycle_regularity = validated.get("cycle_regularity", "regular")
         health_profile.common_symptoms = validated["common_symptoms"]
         health_profile.health_conditions = validated["health_conditions"]
         health_profile.sleep_hours = validated["sleep_hours"]
@@ -128,29 +128,31 @@ def complete_onboarding():
                     )
                 )
 
-        period_end = validated["last_period_start"] + timedelta(
-            days=validated["average_period_length"] - 1
-        )
-        predicted_next = _predict_next_period(
-            validated["last_period_start"],
-            validated["average_cycle_length"],
+        period_length = validated.get("average_period_length", 5)
+        period_history = sorted(
+            validated["period_history"],
+            key=lambda item: item["period_start"],
+            reverse=True,
         )
 
-        existing_cycle = (
-            CycleHistoryLog.query.filter_by(profile_id=user.id)
-            .order_by(CycleHistoryLog.cycle_start_date.desc())
-            .first()
-        )
-        if not existing_cycle:
-            db.session.add(
-                CycleHistoryLog(
-                    profile_id=user.id,
-                    cycle_start_date=validated["last_period_start"],
-                    cycle_end_date=period_end,
-                    flow_intensity=validated["typical_flow"],
-                    predicted_next_period_date=predicted_next,
+        existing_cycles = CycleHistoryLog.query.filter_by(profile_id=user.id).count()
+        if existing_cycles == 0:
+            for index, entry in enumerate(period_history):
+                period_end = entry["period_start"] + timedelta(days=period_length - 1)
+                predicted_next = (
+                    _predict_next_period(entry["period_start"], validated["average_cycle_length"])
+                    if index == 0
+                    else None
                 )
-            )
+                db.session.add(
+                    CycleHistoryLog(
+                        profile_id=user.id,
+                        cycle_start_date=entry["period_start"],
+                        cycle_end_date=period_end,
+                        flow_intensity=entry["flow"],
+                        predicted_next_period_date=predicted_next,
+                    )
+                )
 
         user.onboarding_completed = True
         db.session.commit()

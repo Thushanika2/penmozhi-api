@@ -143,6 +143,17 @@ def main() -> int:
         )
         db.session.commit()
         print("Migrations complete.")
+
+        print("Making user_profiles.date_of_birth nullable...")
+        try:
+            db.session.execute(
+                text("ALTER TABLE `user_profiles` MODIFY COLUMN date_of_birth DATE NULL")
+            )
+            db.session.commit()
+            print("  updated user_profiles.date_of_birth to nullable")
+        except Exception as exc:
+            db.session.rollback()
+            print(f"  skip date_of_birth nullable migration: {exc}")
     return 0
 
 
