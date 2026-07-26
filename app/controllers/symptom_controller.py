@@ -68,6 +68,18 @@ def create_symptom():
         else:
             disorder_status_id = int(disorder_status_id)
 
+        tracking_category_id = data.get("tracking_category_id")
+        if tracking_category_id in (None, "", False):
+            tracking_category_id = None
+        else:
+            tracking_category_id = int(tracking_category_id)
+
+        custom_tag_id = data.get("custom_tag_id")
+        if custom_tag_id in (None, "", False):
+            custom_tag_id = None
+        else:
+            custom_tag_id = int(custom_tag_id)
+
         symptom = SymptomTrackingLog(
             profile_id=current_user.id,
             date_time=parse_datetime(data.get("date_time")) or utc_now(),
@@ -84,6 +96,8 @@ def create_symptom():
                 else None
             ),
             disorder_status_id=disorder_status_id,
+            tracking_category_id=tracking_category_id,
+            custom_tag_id=custom_tag_id,
         )
         db.session.add(symptom)
         db.session.commit()

@@ -28,7 +28,3 @@ Thumbs.db
 
 *.log
 instance/
-
-# Ignore all seeders
-**/seeders/
-**/*seeder*.py

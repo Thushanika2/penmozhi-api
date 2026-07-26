@@ -59,3 +59,22 @@ def forgot_password():
 @limiter.limit("10 per minute")
 def reset_password():
     return ctrl.reset_password()
+
+
+@auth_bp.route("/mode", methods=["PATCH"])
+@jwt_required_user
+def update_mode():
+    return ctrl.update_mode()
+
+
+@auth_bp.route("/app-lock", methods=["PATCH"])
+@jwt_required_user
+def update_app_lock():
+    return ctrl.update_app_lock()
+
+
+@auth_bp.route("/app-lock/verify", methods=["POST"])
+@jwt_required_user
+@limiter.limit("5 per minute")
+def verify_app_lock():
+    return ctrl.verify_app_lock()

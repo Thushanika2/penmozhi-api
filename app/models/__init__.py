@@ -10,6 +10,14 @@ from app.models.forum_post_model import ForumPost
 from app.models.forum_comment_model import ForumComment
 from app.models.daily_log_model import DailyLog
 from app.models.password_reset_token_model import PasswordResetToken
+from app.models.tracking_category_model import TrackingCategory
+from app.models.custom_tag_model import CustomTag
+from app.models.pregnancy_profile_model import PregnancyProfile
+from app.models.perimenopause_log_model import PerimenopauseLog
+from app.models.push_subscription_model import PushSubscription
+from app.models.cycle_share_model import CycleShare
+from app.models.wearable_connection_model import WearableConnection
+from app.models.subscription_model import Subscription
 
 __all__ = [
     "UserProfile",
@@ -24,4 +32,12 @@ __all__ = [
     "ForumComment",
     "DailyLog",
     "PasswordResetToken",
+    "TrackingCategory",
+    "CustomTag",
+    "PregnancyProfile",
+    "PerimenopauseLog",
+    "PushSubscription",
+    "CycleShare",
+    "WearableConnection",
+    "Subscription",
 ]

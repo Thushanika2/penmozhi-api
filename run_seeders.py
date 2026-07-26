@@ -1,4 +1,5 @@
 from app.seeders.user_seeder import seed_education, seed_health_data, seed_users
+from app.seeders.tracking_category_seeder import seed_tracking_categories
 
 
 def run_all():
@@ -8,6 +9,8 @@ def run_all():
     seed_education()
     print("Running health data seeder...")
     seed_health_data()
+    print("Running tracking category seeder...")
+    seed_tracking_categories()
     print("All seeders completed.")
 
 

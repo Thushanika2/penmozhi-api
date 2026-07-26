@@ -51,6 +51,7 @@ class HealthProfile(db.Model):
     notify_ovulation = db.Column(db.Boolean, nullable=False, default=True)
     notify_medication = db.Column(db.Boolean, nullable=False, default=True)
     notify_daily_health = db.Column(db.Boolean, nullable=False, default=True)
+    last_notified_for = db.Column(db.Date, nullable=True)
 
     created_at = db.Column(db.DateTime, default=utc_now)
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
@@ -97,6 +98,9 @@ class HealthProfile(db.Model):
             "notify_ovulation": self.notify_ovulation,
             "notify_medication": self.notify_medication,
             "notify_daily_health": self.notify_daily_health,
+            "last_notified_for": (
+                self.last_notified_for.isoformat() if self.last_notified_for else None
+            ),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

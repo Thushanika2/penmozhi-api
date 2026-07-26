@@ -12,6 +12,15 @@ from app.routes.education_routes import education_bp
 from app.routes.forum_routes import forum_bp
 from app.routes.onboarding_routes import onboarding_bp
 from app.routes.insights_routes import insights_bp
+from app.routes.tracking_category_routes import tracking_category_bp
+from app.routes.custom_tag_routes import custom_tag_bp
+from app.routes.pregnancy_profile_routes import pregnancy_profile_bp
+from app.routes.perimenopause_log_routes import perimenopause_log_bp
+from app.routes.push_subscription_routes import push_subscription_bp
+from app.routes.cycle_share_routes import cycle_share_bp
+from app.routes.wearable_routes import wearable_bp
+from app.routes.subscription_routes import subscription_bp
+from app.routes.account_routes import account_bp
 
 
 def register_blueprints(app):
@@ -29,3 +38,12 @@ def register_blueprints(app):
     app.register_blueprint(forum_bp)
     app.register_blueprint(onboarding_bp)
     app.register_blueprint(insights_bp)
+    app.register_blueprint(tracking_category_bp)
+    app.register_blueprint(custom_tag_bp)
+    app.register_blueprint(pregnancy_profile_bp)
+    app.register_blueprint(perimenopause_log_bp)
+    app.register_blueprint(push_subscription_bp)
+    app.register_blueprint(cycle_share_bp)
+    app.register_blueprint(wearable_bp)
+    app.register_blueprint(subscription_bp)
+    app.register_blueprint(account_bp)

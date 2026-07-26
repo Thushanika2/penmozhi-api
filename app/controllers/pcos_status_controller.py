@@ -108,3 +108,9 @@ def get_pcos_status_history(status_id):
         "pcos_status": status.to_dict(),
         "history": [h.to_dict() for h in history],
     }), 200
+
+
+def get_pcos_patterns():
+    from app.services.pcos_pattern_service import detect_pcos_patterns
+
+    return jsonify(detect_pcos_patterns(current_user)), 200

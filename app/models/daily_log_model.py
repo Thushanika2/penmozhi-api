@@ -19,6 +19,7 @@ class DailyLog(db.Model):
     cervical_fluid = db.Column(db.String(20), nullable=True)
     sexual_activity = db.Column(db.Boolean, nullable=False, default=False)
     notes = db.Column(db.Text, nullable=True)
+    sleep_source = db.Column(db.String(50), nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
 
@@ -44,6 +45,7 @@ class DailyLog(db.Model):
             "cervical_fluid": self.cervical_fluid,
             "sexual_activity": self.sexual_activity,
             "notes": self.notes,
+            "sleep_source": self.sleep_source,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

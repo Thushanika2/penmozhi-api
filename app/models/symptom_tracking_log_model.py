@@ -17,11 +17,29 @@ class SymptomTrackingLog(db.Model):
         db.ForeignKey("pcos_disorder_statuses.id"),
         nullable=True,
     )
+    tracking_category_id = db.Column(
+        db.Integer,
+        db.ForeignKey("tracking_categories.id"),
+        nullable=True,
+    )
+    custom_tag_id = db.Column(
+        db.Integer,
+        db.ForeignKey("custom_tags.id"),
+        nullable=True,
+    )
     created_at = db.Column(db.DateTime, default=utc_now)
 
     user_profile = db.relationship("UserProfile", back_populates="symptom_tracking_logs")
     disorder_status = db.relationship(
         "PCOSDisorderStatus",
+        back_populates="symptom_tracking_logs",
+    )
+    tracking_category = db.relationship(
+        "TrackingCategory",
+        back_populates="symptom_tracking_logs",
+    )
+    custom_tag = db.relationship(
+        "CustomTag",
         back_populates="symptom_tracking_logs",
     )
 
@@ -35,5 +53,7 @@ class SymptomTrackingLog(db.Model):
             "mood_status": self.mood_status,
             "sleep_metrics": self.sleep_metrics,
             "disorder_status_id": self.disorder_status_id,
+            "tracking_category_id": self.tracking_category_id,
+            "custom_tag_id": self.custom_tag_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

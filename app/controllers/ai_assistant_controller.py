@@ -1,12 +1,19 @@
 import json
+import logging
 
-from flask import jsonify, request
+from flask import current_app, jsonify, request
 from flask_jwt_extended import current_user
 
 from app.api_responses import error_response, validation_errors
 from app.extensions import db
 from app.models.ai_health_assistant_session_model import AIHealthAssistantSession
+from app.models.cycle_history_log_model import CycleHistoryLog
+from app.models.health_profile_model import HealthProfile
+from app.models.pcos_disorder_status_model import PCOSDisorderStatus
 from app.models.symptom_tracking_log_model import SymptomTrackingLog
+from app.services.pcos_pattern_service import detect_pcos_patterns
+
+logger = logging.getLogger(__name__)
 
 
 def _build_recommendations(message, symptoms):
@@ -46,6 +53,77 @@ def _build_recommendations(message, symptoms):
     return recommendations
 
 
+def _active_pcos_status(user):
+    health = HealthProfile.query.filter_by(profile_id=user.id).first()
+    if not health:
+        return None
+    return (
+        PCOSDisorderStatus.query.filter_by(health_profile_id=health.id)
+        .order_by(PCOSDisorderStatus.created_at.desc())
+        .first()
+    )
+
+
+def _build_llm_context(user):
+    symptoms = (
+        SymptomTrackingLog.query.filter_by(profile_id=user.id)
+        .order_by(SymptomTrackingLog.date_time.desc())
+        .limit(20)
+        .all()
+    )
+    cycles = (
+        CycleHistoryLog.query.filter_by(profile_id=user.id)
+        .order_by(CycleHistoryLog.cycle_start_date.desc())
+        .limit(6)
+        .all()
+    )
+    pcos = _active_pcos_status(user)
+    patterns = detect_pcos_patterns(user)
+
+    return {
+        "mode": user.mode,
+        "recent_symptoms": [s.to_dict() for s in symptoms],
+        "recent_cycles": [c.to_dict() for c in cycles],
+        "pcos_status": pcos.to_dict() if pcos else None,
+        "pcos_patterns": patterns.get("patterns", []),
+    }
+
+
+def _call_llm(message, context):
+    api_key = current_app.config.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return None
+
+    try:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=api_key)
+        system_prompt = (
+            "You are a women's health assistant for the Penmozhi app. "
+            "Answer ONLY using the structured user context provided. "
+            "Never fabricate medical claims, lab results, or diagnoses. "
+            "Always recommend consulting a qualified clinician for diagnosis or treatment. "
+            "Be supportive, concise, and evidence-aware. "
+            "If the context lacks information to answer, say so clearly."
+        )
+        user_content = (
+            f"User message: {message}\n\n"
+            f"Context JSON:\n{json.dumps(context, indent=2)}"
+        )
+
+        response = client.messages.create(
+            model=current_app.config.get("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022"),
+            max_tokens=800,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        text_blocks = [block.text for block in response.content if hasattr(block, "text")]
+        return "\n".join(text_blocks).strip() if text_blocks else None
+    except Exception:
+        logger.exception("LLM call failed; falling back to rule-based recommendations.")
+        return None
+
+
 def chat():
     data = request.get_json(silent=True)
     if not data:
@@ -64,13 +142,21 @@ def chat():
             .limit(20)
             .all()
         )
+        context = _build_llm_context(current_user)
         analysis = {
             "recent_symptom_count": len(symptoms),
             "max_pain": max((s.pain_severity for s in symptoms), default=0),
             "categories": list({s.category for s in symptoms}),
+            "mode": current_user.mode,
         }
-        recommendations = _build_recommendations(message, symptoms)
-        reply = " ".join(recommendations)
+
+        llm_reply = _call_llm(message, context)
+        if llm_reply:
+            reply = llm_reply
+            recommendations = [llm_reply]
+        else:
+            recommendations = _build_recommendations(message, symptoms)
+            reply = " ".join(recommendations)
 
         session = AIHealthAssistantSession(
             profile_id=current_user.id,
@@ -95,42 +181,3 @@ def chat():
     except Exception:
         db.session.rollback()
         return error_response("server.internal_error", "An internal server error occurred.", 500)
-
-
-def get_recommendations():
-    sessions = (
-        AIHealthAssistantSession.query.filter_by(profile_id=current_user.id)
-        .order_by(AIHealthAssistantSession.created_at.desc())
-        .all()
-    )
-    recommendations = []
-    for session in sessions:
-        if not session.generated_recommendations:
-            continue
-        try:
-            items = json.loads(session.generated_recommendations)
-            if isinstance(items, list):
-                recommendations.extend(items)
-            else:
-                recommendations.append(str(items))
-        except json.JSONDecodeError:
-            recommendations.append(session.generated_recommendations)
-
-    # Deduplicate while preserving order
-    seen = set()
-    unique = []
-    for item in recommendations:
-        if item not in seen:
-            seen.add(item)
-            unique.append(item)
-
-    return jsonify({"recommendations": unique}), 200
-
-
-def get_sessions():
-    sessions = (
-        AIHealthAssistantSession.query.filter_by(profile_id=current_user.id)
-        .order_by(AIHealthAssistantSession.created_at.desc())
-        .all()
-    )
-    return jsonify({"sessions": [s.to_dict() for s in sessions]}), 200

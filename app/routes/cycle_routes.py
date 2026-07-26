@@ -36,6 +36,12 @@ def get_calendar():
     return ctrl.get_calendar()
 
 
+@cycle_bp.route("/predict-conceive", methods=["GET"])
+@roles_required("user")
+def predict_conceive():
+    return ctrl.predict_conceive()
+
+
 @cycle_bp.route("/<int:cycle_id>", methods=["PUT"])
 @roles_required("user")
 def update_cycle(cycle_id):

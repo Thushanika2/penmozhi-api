@@ -24,6 +24,8 @@ from app.schemas.auth_schema import (
 from app.services.email_service import send_password_reset_email
 from app.utils import LANGUAGE_PREFERENCES, parse_date, utc_now
 
+TRACKING_MODES = ("period", "conceive", "pregnancy", "perimenopause", "non_bleeding")
+
 
 def _issue_tokens(user):
     access_token = create_access_token(identity=str(user.id))
@@ -191,6 +193,98 @@ def update_profile():
     except Exception:
         db.session.rollback()
         return error_response("server.internal_error", "An internal server error occurred.", 500)
+
+
+def update_mode():
+    user = current_user
+    if not user:
+        return error_response("auth.user_not_found", "User not found.", 404)
+
+    data = request.get_json(silent=True)
+    if not data:
+        return error_response("request.body_required", "Request body is required.", 400)
+
+    mode = data.get("mode")
+    if mode is None or str(mode).strip() == "":
+        return validation_errors([("validation.mode_required", "mode is required.")], 400)
+
+    mode = str(mode).strip().lower()
+    if mode not in TRACKING_MODES:
+        return validation_errors(
+            [("validation.mode_invalid", f"mode must be one of: {', '.join(TRACKING_MODES)}.")],
+            400,
+        )
+
+    try:
+        user.mode = mode
+        db.session.commit()
+        return message_response(
+            "auth.mode_updated",
+            "Tracking mode updated successfully.",
+            200,
+            user=user.to_dict(),
+        )
+    except Exception:
+        db.session.rollback()
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
+
+
+def update_app_lock():
+    user = current_user
+    if not user:
+        return error_response("auth.user_not_found", "User not found.", 404)
+
+    data = request.get_json(silent=True)
+    if not data:
+        return error_response("request.body_required", "Request body is required.", 400)
+
+    try:
+        if data.get("clear"):
+            user.pin_hash = None
+        else:
+            pin = data.get("pin")
+            if pin is None or str(pin).strip() == "":
+                return validation_errors([("validation.pin_required", "pin is required.")], 400)
+            pin_str = str(pin).strip()
+            if len(pin_str) < 4 or len(pin_str) > 8:
+                return validation_errors(
+                    [("validation.pin_length", "pin must be between 4 and 8 characters.")],
+                    400,
+                )
+            user.set_pin(pin_str)
+
+        db.session.commit()
+        return message_response(
+            "auth.app_lock_updated",
+            "App lock updated successfully.",
+            200,
+            user=user.to_dict(),
+        )
+    except Exception:
+        db.session.rollback()
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
+
+
+def verify_app_lock():
+    user = current_user
+    if not user:
+        return error_response("auth.user_not_found", "User not found.", 404)
+
+    if not user.has_app_lock():
+        return jsonify({"verified": True, "message": "App lock is not enabled."}), 200
+
+    data = request.get_json(silent=True)
+    if not data:
+        return error_response("request.body_required", "Request body is required.", 400)
+
+    pin = data.get("pin")
+    if pin is None or str(pin).strip() == "":
+        return validation_errors([("validation.pin_required", "pin is required.")], 400)
+
+    if user.check_pin(str(pin).strip()):
+        return jsonify({"verified": True, "message": "PIN verified successfully."}), 200
+
+    return error_response("auth.invalid_pin", "Invalid PIN.", 401)
 
 
 def delete_account():

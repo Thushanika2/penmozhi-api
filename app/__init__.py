@@ -29,6 +29,14 @@ def create_app():
         ForumComment,
         DailyLog,
         PasswordResetToken,
+        TrackingCategory,
+        CustomTag,
+        PregnancyProfile,
+        PerimenopauseLog,
+        PushSubscription,
+        CycleShare,
+        WearableConnection,
+        Subscription,
     )
 
     @jwt.user_lookup_loader
@@ -37,6 +45,10 @@ def create_app():
         return db.session.get(UserProfile, int(identity))
 
     register_blueprints(app)
+
+    from app.services.scheduler_service import init_scheduler
+
+    init_scheduler(app)
 
     @app.route("/", methods=["GET"])
     def api_home():

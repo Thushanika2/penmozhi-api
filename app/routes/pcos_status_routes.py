@@ -12,6 +12,12 @@ def get_my_pcos_status():
     return ctrl.get_my_pcos_status()
 
 
+@pcos_status_bp.route("/patterns", methods=["GET"])
+@roles_required("user")
+def get_pcos_patterns():
+    return ctrl.get_pcos_patterns()
+
+
 @pcos_status_bp.route("/<int:status_id>", methods=["PUT"])
 @roles_required("user", "admin")
 def update_pcos_status(status_id):

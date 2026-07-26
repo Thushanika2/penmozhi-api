@@ -189,3 +189,9 @@ def get_calendar():
     from app.controllers import daily_log_controller as daily_ctrl
 
     return daily_ctrl.get_calendar()
+
+
+def predict_conceive():
+    from app.services.conceive_insights_service import compute_conceive_insights
+
+    return jsonify(compute_conceive_insights(current_user)), 200

@@ -17,6 +17,8 @@ class UserProfile(db.Model):
     onboarding_completed = db.Column(db.Boolean, nullable=False, default=False)
     role = db.Column(db.String(20), nullable=False, default="user")
     registration_date = db.Column(db.DateTime, default=utc_now)
+    mode = db.Column(db.String(30), nullable=False, default="period")
+    pin_hash = db.Column(db.String(255), nullable=True)
 
     health_profile = db.relationship(
         "HealthProfile",
@@ -64,12 +66,66 @@ class UserProfile(db.Model):
         back_populates="user_profile",
         cascade="all, delete-orphan",
     )
+    custom_tags = db.relationship(
+        "CustomTag",
+        back_populates="user_profile",
+        cascade="all, delete-orphan",
+    )
+    pregnancy_profile = db.relationship(
+        "PregnancyProfile",
+        back_populates="user_profile",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    perimenopause_logs = db.relationship(
+        "PerimenopauseLog",
+        back_populates="user_profile",
+        cascade="all, delete-orphan",
+    )
+    push_subscriptions = db.relationship(
+        "PushSubscription",
+        back_populates="user_profile",
+        cascade="all, delete-orphan",
+    )
+    cycle_shares_owned = db.relationship(
+        "CycleShare",
+        foreign_keys="CycleShare.owner_profile_id",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+    )
+    cycle_shares_received = db.relationship(
+        "CycleShare",
+        foreign_keys="CycleShare.shared_with_profile_id",
+        back_populates="recipient",
+    )
+    wearable_connections = db.relationship(
+        "WearableConnection",
+        back_populates="user_profile",
+        cascade="all, delete-orphan",
+    )
+    subscription = db.relationship(
+        "Subscription",
+        back_populates="user_profile",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
+
+    def set_pin(self, pin):
+        self.pin_hash = generate_password_hash(pin)
+
+    def check_pin(self, pin):
+        if not self.pin_hash:
+            return False
+        return check_password_hash(self.pin_hash, pin)
+
+    def has_app_lock(self):
+        return bool(self.pin_hash)
 
     def to_dict(self):
         return {
@@ -85,4 +141,6 @@ class UserProfile(db.Model):
             "registration_date": (
                 self.registration_date.isoformat() if self.registration_date else None
             ),
+            "mode": self.mode,
+            "has_app_lock": self.has_app_lock(),
         }
