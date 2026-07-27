@@ -8,6 +8,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.api_responses import error_response, message_response, validation_errors
 from app.extensions import db
+from app.models.cycle_share_model import CycleShare
 from app.models.health_profile_model import HealthProfile
 from app.models.password_reset_token_model import PasswordResetToken
 from app.models.pcos_disorder_status_model import PCOSDisorderStatus
@@ -309,6 +310,10 @@ def delete_account():
         return error_response("auth.invalid_credentials", "Invalid email or password.", 401)
 
     try:
+        CycleShare.query.filter_by(shared_with_profile_id=user.id).update(
+            {"shared_with_profile_id": None},
+            synchronize_session=False,
+        )
         db.session.delete(user)
         db.session.commit()
         return message_response(
