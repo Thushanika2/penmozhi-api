@@ -12,6 +12,7 @@ from app.models.health_profile_model import HealthProfile
 from app.models.pcos_disorder_status_model import PCOSDisorderStatus
 from app.models.symptom_tracking_log_model import SymptomTrackingLog
 from app.services.pcos_pattern_service import detect_pcos_patterns
+from app.services.ai_assistant_llm_service import generate_assistant_reply
 
 logger = logging.getLogger(__name__)
 
@@ -89,41 +90,6 @@ def _build_llm_context(user):
     }
 
 
-def _call_llm(message, context):
-    api_key = current_app.config.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        return None
-
-    try:
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=api_key)
-        system_prompt = (
-            "You are a women's health assistant for the Penmozhi app. "
-            "Answer ONLY using the structured user context provided. "
-            "Never fabricate medical claims, lab results, or diagnoses. "
-            "Always recommend consulting a qualified clinician for diagnosis or treatment. "
-            "Be supportive, concise, and evidence-aware. "
-            "If the context lacks information to answer, say so clearly."
-        )
-        user_content = (
-            f"User message: {message}\n\n"
-            f"Context JSON:\n{json.dumps(context, indent=2)}"
-        )
-
-        response = client.messages.create(
-            model=current_app.config.get("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022"),
-            max_tokens=800,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_content}],
-        )
-        text_blocks = [block.text for block in response.content if hasattr(block, "text")]
-        return "\n".join(text_blocks).strip() if text_blocks else None
-    except Exception:
-        logger.exception("LLM call failed; falling back to rule-based recommendations.")
-        return None
-
-
 def chat():
     data = request.get_json(silent=True)
     if not data:
@@ -150,7 +116,7 @@ def chat():
             "mode": current_user.mode,
         }
 
-        llm_reply = _call_llm(message, context)
+        llm_reply = generate_assistant_reply(message, context)
         if llm_reply:
             reply = llm_reply
             recommendations = [llm_reply]
