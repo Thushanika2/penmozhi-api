@@ -3,6 +3,7 @@ from datetime import date
 from app.extensions import db
 from app.models.educational_resource_model import EducationalResource
 from app.seeders.education_articles_ta import EDUCATION_ARTICLES_TA
+from app.seeders.education_references import SOURCES_EN, SOURCES_TA, append_sources
 
 EDUCATION_ARTICLES = [
     {
@@ -365,8 +366,22 @@ def seed_education():
     created = 0
     updated = 0
 
-    english_articles = [{**article, "language": "english"} for article in EDUCATION_ARTICLES]
-    tamil_articles = [{**article, "language": "tamil"} for article in EDUCATION_ARTICLES_TA]
+    english_articles = [
+        {
+            **article,
+            "language": "english",
+            "content_body": append_sources(article["content_body"], SOURCES_EN[index], "english"),
+        }
+        for index, article in enumerate(EDUCATION_ARTICLES)
+    ]
+    tamil_articles = [
+        {
+            **article,
+            "language": "tamil",
+            "content_body": append_sources(article["content_body"], SOURCES_TA[index], "tamil"),
+        }
+        for index, article in enumerate(EDUCATION_ARTICLES_TA)
+    ]
 
     for article in english_articles + tamil_articles:
         existing = EducationalResource.query.filter_by(

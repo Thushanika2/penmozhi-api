@@ -24,91 +24,84 @@ EDUCATION_ARTICLES_TA = [
         "publication_date": date(2026, 1, 11),
         "content_body": """மாதவிலக்கு சுழற்சி ஹார்மோன்கள் கட்டுப்படுத்தும் மாதாந்திர தாளம்; உடல், மனநிலை, ஆற்றலை பாதிக்கும்.
 
-நான்கு கட்டங்கள்
-1. மாதவிடாய் கட்டம்: சுவர் கழிந்து வெளியேறும்.
-2. ஃபாலிகுலர் கட்டம்: ஈஸ்ட்ரோஜன் உயரும்; ஆற்றல் மேம்படும்.
-3. ஒவ்யulation: முட்டை வெளியேறும்.
-4. லூட்டியல் கட்டம்: PMS அறிகுறிகள் தோன்றலாம்.
+நான்கு கட்டங்கள்: மாதவிடாய், ஃபாலிகுலர், ஒவ்யulation, லூட்டியல்.
 
-இயல்பான சுழற்சி 21–35 நாட்கள். தேதிகள், வலி, மனநிலை, தூக்கத்தைப் பதிவு செய்வது அடுத்த மாதவிடாயை கணிக்கவும், ஒழுங்கின்மையை early கண்டறியவும் உதவும்.""",
+இயல்பான சுழற்சி 21–35 நாட்கள். தேதிகள், வலி, மனநிலை, தூக்கத்தைப் பதிவு செய்வது உதவும்.
+
+சீராக 21-க்குக் குறைவாகவோ 35-க்கு மேலாகவோ; 3 மாதம் period இல்லை — மகப்பேறு நிபுணரை அணுகுங்கள்.""",
     },
     {
         "article_title": "மாதவிடாய் வலி: எப்போது சாதாரணம், எப்போது மருத்துவரைப் பார்க்க வேண்டும்",
         "content_category": "cycle",
         "publication_date": date(2026, 1, 19),
-        "content_body": """மாதவிடாய் வலி (dysmenorrhea) பல பெண்களைப் பாதிக்கும். முதல் 1–2 நாட்களில் வயிற்று, இடுப்பு, தொடை வலி பொதுவானது.
+        "content_body": """மாதவிடாய் வலி பல பெண்களைப் பாதிக்கும். முதல் 1–2 நாட்களில் வயிற்று, இடுப்பு, தொடை வலி பொதுவானது.
 
-வீட்டில் உதவும் வழிகள்
-சூடான நீர் பை, லேசான நடை, யோகா, ஓய்வு, நீர். வலி தொடங்கும்போது ibuprofen (16 வயதுக்குக் குறைவானவர்கள் பெற்றோர்/மருத்துவர் அனுமதி).
+வீட்டில்: சூடான நீர் பை, லேசான நடை, ஓய்வு, நீர், ibuprofen (பெற்றோர்/மருத்துவர் அனுமதியுடன்).
 
-மருத்துவரை அணுகுங்கள்:
-பள்ளி/வேலை/தூக்கம் தவிர்க்கும் அளவு கடுமையான வலி; மாதவிடாய்க்கு முன் தொடங்கி many days நீடிக்கும் வலி; ஒரு மணி நேரத்தில் பேட் முழுவதும் நனை; காதல்/சிற்றினம்/மலம் கழிக்கும்போது வலி.""",
+மருத்துவர்: பள்ளி/வேலை/தூக்கம் தவிர்க்கும் severe pain; heavy bleeding; intimacy/urination/bowel movement-ல் வலி.""",
     },
     {
         "article_title": "Puberty-யில் உடல் மாற்றங்கள்",
         "content_category": "puberty",
         "publication_date": date(2026, 1, 26),
-        "content_body": """Puberty 8–13 வயதில் தொடங்கி several years நீடிக்கும். ஒவ்வொரு உடலும் own pace-ல் வளரும்.
+        "content_body": """Puberty 8–13 வயதில் தொடங்கும். மார்பு வளர்ச்சி, உடல் முடி, முகப்பரு, யோனி discharge, மாதவிடாய்.
 
-பொதுவான மாற்றங்கள்
-மார்பு வளர்ச்சி, உடல் முடி, உயரம்/இடுப்பு விரிவாக்கம், முகப்பரு, யோனி discharge (clear/white — normal), மாதவிடாய் (மார்பு வளர்ச்சிக்கு 2–3 வருடம் பிறகு).
+Self-care: shower, cotton underwear, balanced meals, 8–10 hours sleep.
 
-Self-care: daily shower, cotton underwear, balanced meals, 8–10 hours sleep. 13-க்கு மார்பு வளர்ச்சி இல்லை; 15-க்கு மாதவிடாய் இல்லை — மருத்துவர்.""",
+13-க்கு மார்பு வளர்ச்சி இல்லை; 15-க்கு மாதவிடாய் இல்லை — மருத்துவர்.""",
     },
     {
         "article_title": "Teens-க்கான யோனி ஆரோக்கியம் மற்றும் hygiene",
         "content_category": "hygiene",
         "publication_date": date(2026, 2, 6),
-        "content_body": """யோனி self-cleaning. Gentle care — harsh products avoid.
+        "content_body": """யோனி self-cleaning. Vulva warm water + mild soap; front to back wipe; daily underwear; tampon 8 hours max.
 
-Daily: vulva warm water + mild soap; front to back wipe; daily underwear; pad/tampon change (tampon 8 hours max).
+Avoid douching, scented sprays.
 
-Avoid: douching, scented sprays, tight synthetic clothing.
-
-Medical attention: itching, burning, thick discharge, foul odor, sores, bleeding between periods.""",
+Medical attention: itching, burning, abnormal discharge, sores, bleeding between periods.""",
     },
     {
         "article_title": "PCOS: அறிகுறிகள் மற்றும் ஆதரவு",
         "content_category": "pcos",
         "publication_date": date(2026, 2, 13),
-        "content_body": """PCOS reproductive age women-ில் roughly 1 in 10. Irregular periods, excess hair, persistent acne, weight changes.
+        "content_body": """PCOS roughly 1 in 10 women. Irregular periods, excess hair, acne, weight changes.
 
-Early lifestyle: activity, balanced meals, sleep, symptom tracking (Penmozhi). Medical: birth control, metformin when needed. Symptom log doctor appointment-க்கு கொண்டு செல்லுங்கள்.""",
+Lifestyle: activity, balanced meals, sleep, tracking. Medical treatment when needed. Symptom log doctor-க்கு கொண்டு செல்லுங்கள்.""",
     },
     {
         "article_title": "Hormonal balance மற்றும் cycle health-க்கான nutrition",
         "content_category": "nutrition",
         "publication_date": date(2026, 2, 21),
-        "content_body": """Protein, fiber, healthy fats, iron-rich foods, calcium/vitamin D. 6–8 glasses water daily. Limit sugary drinks, excess caffeine. Heavy periods: iron + vitamin C. Supplements only with doctor advice.""",
+        "content_body": """Protein, fiber, healthy fats, iron, calcium/vitamin D. 6–8 glasses water. Limit sugar and excess caffeine. Supplements only with doctor advice.""",
     },
     {
         "article_title": "Mental health, mood, மற்றும் menstrual cycle",
         "content_category": "mental_health",
         "publication_date": date(2026, 3, 2),
-        "content_body": """Hormones mood affect. PMS mild–moderate; PMDD severe — daily life disrupt. Track mood, sleep, gentle movement. Seek help: hopeless feelings, self-harm thoughts, school/work miss several days monthly. Mental health is health.""",
+        "content_body": """PMS mild–moderate; PMDD severe. Track mood, sleep, movement. Seek help for self-harm thoughts or school/work disruption. Mental health is health.""",
     },
     {
         "article_title": "Young women-க்கான breast health basics",
         "content_category": "wellness",
         "publication_date": date(2026, 3, 11),
-        "content_body": """Tenderness before period normal; one breast slightly larger normal. Know normal look/feel. Doctor: hard lump not gone after next period, nipple discharge, skin dimpling. Teen breast cancer rare; most lumps benign.""",
+        "content_body": """Tenderness before period normal. Know normal look/feel. Doctor for persistent lump, nipple discharge, skin dimpling. Teen breast cancer rare.""",
     },
     {
         "article_title": "Gynecologist-ஐ எப்போது பார்க்க வேண்டும்",
         "content_category": "wellness",
         "publication_date": date(2026, 3, 19),
-        "content_body": """First visit ages 13–15 recommended — often conversation, not always exam. Pap smears typically age 21. Sooner if: no period by 15, severe pain, heavy bleeding, PCOS concerns, contraception/STI questions. Write questions; bring symptom log.""",
+        "content_body": """First visit ages 13–15 (ACOG). Pap smears age 21. Sooner if no period by 15, severe pain, heavy bleeding. Write questions; bring symptom log.""",
     },
     {
         "article_title": "STIs, consent, reproductive health protection",
         "content_category": "reproductive_health",
         "publication_date": date(2026, 3, 26),
-        "content_body": """Consent: freely agree, change mind anytime. Condoms reduce STI transmission. HPV vaccine recommended adolescence. Regular testing if sexually active. Emergency contraception within 72 hours after unprotected sex. Confidential care available.""",
+        "content_body": """Consent first. Condoms reduce STIs. HPV vaccine. Emergency contraception within 72 hours. Confidential care available.""",
     },
     {
         "article_title": "Sleep, stress, மற்றும் hormones",
         "content_category": "wellness",
         "publication_date": date(2026, 4, 3),
-        "content_body": """Puberty: 8–10 hours sleep. Poor sleep worsens PMS, acne, irregular cycles. Consistent bedtime, limit screens, manage stress through movement and talking. Doctor if multiple missed periods during stress or persistent low mood 2+ weeks.""",
+        "content_body": """8–10 hours sleep. Limit screens. Manage stress. Doctor if multiple missed periods or persistent low mood 2+ weeks.""",
     },
 ]
