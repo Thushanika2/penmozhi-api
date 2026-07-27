@@ -33,7 +33,7 @@ def _call_gemini(message: str, context: dict) -> str | None:
 
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model=current_app.config.get("GEMINI_MODEL", "gemini-2.0-flash"),
+            model=current_app.config.get("GEMINI_MODEL", "gemini-flash-latest"),
             contents=_format_user_content(message, context),
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,

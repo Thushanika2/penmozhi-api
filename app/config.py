@@ -114,7 +114,7 @@ class Config:
     ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022")
 
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
     AI_PROVIDER = os.getenv("AI_PROVIDER", "auto")
 
     VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY")
