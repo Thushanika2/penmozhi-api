@@ -132,13 +132,16 @@ def cmd_reset(app):
 
 def cmd_seed(app):
     from app.extensions import db
-    from app.seeders.user_seeder import seed_education, seed_health_data, seed_users
+    from app.seeders.education_seeder import seed_education
+    from app.seeders.tracking_category_seeder import seed_tracking_categories
+    from app.seeders.user_seeder import seed_health_data, seed_users
 
     with app.app_context():
         db.create_all()
         seed_users()
         seed_education()
         seed_health_data()
+        seed_tracking_categories()
         print("Seed data created.")
     return 0
 
