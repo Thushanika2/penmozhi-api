@@ -9,6 +9,7 @@ class EducationalResource(db.Model):
     article_title = db.Column(db.String(255), nullable=False)
     content_category = db.Column(db.String(100), nullable=False)
     content_body = db.Column(db.Text, nullable=False)
+    language = db.Column(db.String(20), nullable=False, default="english", server_default="english")
     publication_date = db.Column(db.Date, nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now)
 
@@ -20,6 +21,7 @@ class EducationalResource(db.Model):
             "article_title": self.article_title,
             "content_category": self.content_category,
             "content_body": self.content_body,
+            "language": self.language or "english",
             "publication_date": (
                 self.publication_date.isoformat() if self.publication_date else None
             ),

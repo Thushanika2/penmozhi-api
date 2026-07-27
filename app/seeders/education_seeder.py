@@ -365,15 +365,25 @@ def seed_education():
     created = 0
     updated = 0
 
-    for article in EDUCATION_ARTICLES + EDUCATION_ARTICLES_TA:
+    english_articles = [{**article, "language": "english"} for article in EDUCATION_ARTICLES]
+    tamil_articles = [{**article, "language": "tamil"} for article in EDUCATION_ARTICLES_TA]
+
+    for article in english_articles + tamil_articles:
         existing = EducationalResource.query.filter_by(
-            article_title=article["article_title"]
+            article_title=article["article_title"],
+            language=article["language"],
         ).first()
+
+        if not existing:
+            existing = EducationalResource.query.filter_by(
+                article_title=article["article_title"]
+            ).first()
 
         if existing:
             existing.content_category = article["content_category"]
             existing.content_body = article["content_body"]
             existing.publication_date = article["publication_date"]
+            existing.language = article["language"]
             updated += 1
         else:
             db.session.add(EducationalResource(**article))

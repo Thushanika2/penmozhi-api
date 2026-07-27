@@ -6,6 +6,17 @@ from app.models.educational_resource_model import EducationalResource
 from app.utils import parse_date, utc_now
 
 
+def _normalize_language(value):
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    if normalized in ("english", "en"):
+        return "english"
+    if normalized in ("tamil", "ta"):
+        return "tamil"
+    return None
+
+
 def _validate_education_payload(data, resource_id=None):
     errors = []
     if not data:
@@ -23,6 +34,10 @@ def _validate_education_payload(data, resource_id=None):
         except ValueError:
             errors.append("publication_date must be a valid date (YYYY-MM-DD).")
 
+    if "language" in data and data.get("language") is not None:
+        if _normalize_language(data.get("language")) is None:
+            errors.append("language must be 'english' or 'tamil'.")
+
     return errors
 
 
@@ -33,6 +48,9 @@ def get_education_resources():
         query = query.filter(
             EducationalResource.content_category.ilike(str(category).strip())
         )
+    language = _normalize_language(request.args.get("language"))
+    if language:
+        query = query.filter(EducationalResource.language == language)
     resources = query.order_by(EducationalResource.publication_date.desc()).all()
     return jsonify({"education_resources": [r.to_dict() for r in resources]}), 200
 
@@ -58,6 +76,7 @@ def create_education_resource():
             article_title=str(data.get("article_title")).strip(),
             content_category=str(data.get("content_category")).strip(),
             content_body=str(data.get("content_body")).strip(),
+            language=_normalize_language(data.get("language")) or "english",
             publication_date=parse_date(data.get("publication_date")) or utc_now().date(),
         )
         db.session.add(resource)
@@ -93,6 +112,8 @@ def update_education_resource(resource_id):
             resource.content_category = str(data.get("content_category")).strip()
         if "content_body" in data and data.get("content_body") is not None:
             resource.content_body = str(data.get("content_body")).strip()
+        if "language" in data and data.get("language") is not None:
+            resource.language = _normalize_language(data.get("language")) or resource.language
         if "publication_date" in data and data.get("publication_date") is not None:
             resource.publication_date = parse_date(data.get("publication_date"))
 
