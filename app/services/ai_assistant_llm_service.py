@@ -43,6 +43,11 @@ def _call_gemini(message: str, context: dict) -> str | None:
         )
         text = (response.text or "").strip()
         return text or None
+    except ImportError:
+        logger.error(
+            "google-genai is not installed. Run: pip install -r requirements.txt"
+        )
+        return None
     except Exception:
         logger.exception("Gemini call failed.")
         return None
