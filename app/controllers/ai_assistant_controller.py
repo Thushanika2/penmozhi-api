@@ -181,3 +181,39 @@ def chat():
     except Exception:
         db.session.rollback()
         return error_response("server.internal_error", "An internal server error occurred.", 500)
+
+
+def get_recommendations():
+    try:
+        symptoms = (
+            SymptomTrackingLog.query.filter_by(profile_id=current_user.id)
+            .order_by(SymptomTrackingLog.date_time.desc())
+            .limit(20)
+            .all()
+        )
+        recommendations = _build_recommendations("", symptoms)
+
+        patterns = detect_pcos_patterns(current_user).get("patterns", [])
+        for pattern in patterns[:2]:
+            description = pattern.get("description")
+            if description and description not in recommendations:
+                recommendations.append(description)
+
+        return jsonify({"recommendations": recommendations}), 200
+    except Exception:
+        logger.exception("Failed to load AI assistant recommendations.")
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
+
+
+def get_sessions():
+    try:
+        sessions = (
+            AIHealthAssistantSession.query.filter_by(profile_id=current_user.id)
+            .order_by(AIHealthAssistantSession.created_at.desc())
+            .limit(20)
+            .all()
+        )
+        return jsonify({"sessions": [session.to_dict() for session in sessions]}), 200
+    except Exception:
+        logger.exception("Failed to load AI assistant sessions.")
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
