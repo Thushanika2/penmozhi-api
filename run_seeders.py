@@ -1,4 +1,5 @@
-from app.seeders.user_seeder import seed_education, seed_health_data, seed_users
+from app.seeders.user_seeder import seed_health_data, seed_users
+from app.seeders.education_seeder import seed_education
 from app.seeders.tracking_category_seeder import seed_tracking_categories
 
 
