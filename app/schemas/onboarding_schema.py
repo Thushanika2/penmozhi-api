@@ -57,7 +57,6 @@ class OnboardingSchema(Schema):
     timezone = fields.Str(required=True, validate=validate.Length(max=64))
 
     # Step 2 — Menstrual information
-    knows_last_three_months = fields.Bool(required=True)
     period_history = fields.List(
         fields.Nested(PeriodHistoryEntrySchema),
         required=True,
@@ -142,14 +141,17 @@ class OnboardingSchema(Schema):
                 {"birth_control_type": ["Invalid birth control type."]}
             )
 
-        knows_three = data.get("knows_last_three_months", False)
         history = data.get("period_history", [])
-        expected = 3 if knows_three else 1
-        if len(history) != expected:
+        max_entries = 3
+        if len(history) < 1:
+            raise ValidationError(
+                {"period_history": ["Select at least one period start date."]}
+            )
+        if len(history) > max_entries:
             raise ValidationError(
                 {
                     "period_history": [
-                        f"Provide period details for {expected} month(s)."
+                        f"Select at most {max_entries} period start date(s)."
                     ]
                 }
             )

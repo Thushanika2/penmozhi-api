@@ -59,7 +59,6 @@ def main() -> int:
         "weight": 58,
         "language_preference": "english",
         "timezone": "Asia/Kolkata",
-        "knows_last_three_months": True,
         "period_history": [
             {"period_start": last.isoformat(), "flow": "medium"},
             {"period_start": (last - timedelta(days=28)).isoformat(), "flow": "light"},
