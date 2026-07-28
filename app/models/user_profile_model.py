@@ -109,6 +109,16 @@ class UserProfile(db.Model):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    privacy_requests = db.relationship(
+        "PrivacyRequest",
+        foreign_keys="PrivacyRequest.user_id",
+        back_populates="user",
+    )
+    user_consents = db.relationship(
+        "UserConsent",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)

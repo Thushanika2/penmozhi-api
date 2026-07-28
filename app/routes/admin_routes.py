@@ -1,6 +1,7 @@
 from flask import Blueprint
 
 from app.controllers import admin_controller as ctrl
+from app.controllers import privacy_admin_controller as privacy_ctrl
 from app.middleware import roles_required
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -76,3 +77,27 @@ def list_users():
 @roles_required("admin")
 def export_report(report_type):
     return ctrl.export_report(report_type)
+
+
+@admin_bp.route("/privacy/requests", methods=["GET"])
+@roles_required("admin")
+def list_privacy_requests():
+    return privacy_ctrl.list_privacy_requests()
+
+
+@admin_bp.route("/privacy/requests/<int:request_id>/complete", methods=["POST"])
+@roles_required("admin")
+def complete_privacy_request(request_id):
+    return privacy_ctrl.complete_privacy_request_handler(request_id)
+
+
+@admin_bp.route("/privacy/integrations", methods=["GET"])
+@roles_required("admin")
+def list_privacy_integrations():
+    return privacy_ctrl.list_integration_audit()
+
+
+@admin_bp.route("/privacy/consents/<int:user_id>", methods=["GET"])
+@roles_required("admin")
+def get_user_consents(user_id):
+    return privacy_ctrl.get_user_consents(user_id)

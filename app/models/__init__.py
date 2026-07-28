@@ -18,6 +18,8 @@ from app.models.push_subscription_model import PushSubscription
 from app.models.cycle_share_model import CycleShare
 from app.models.wearable_connection_model import WearableConnection
 from app.models.subscription_model import Subscription
+from app.models.privacy_request_model import PrivacyRequest
+from app.models.user_consent_model import UserConsent
 
 __all__ = [
     "UserProfile",
@@ -40,4 +42,6 @@ __all__ = [
     "CycleShare",
     "WearableConnection",
     "Subscription",
+    "PrivacyRequest",
+    "UserConsent",
 ]

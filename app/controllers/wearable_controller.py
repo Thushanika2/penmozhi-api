@@ -4,6 +4,7 @@ from flask_jwt_extended import current_user
 from app.api_responses import error_response, message_response
 from app.extensions import db
 from app.models.wearable_connection_model import WearableConnection
+from app.services.privacy_service import record_wearable_consent
 from app.utils import utc_now
 
 ALLOWED_PROVIDERS = {"oura", "whoop", "fitbit", "withings", "garmin", "apple"}
@@ -64,6 +65,7 @@ def callback_wearable(provider):
         conn.access_token = f"stub_access_{code[:8]}"
         conn.refresh_token = f"stub_refresh_{code[:8]}"
         conn.last_synced_at = utc_now()
+        record_wearable_consent(current_user.id, provider)
         db.session.commit()
 
         client_url = current_app.config.get("CLIENT_APP_URL", "http://localhost:3000").rstrip("/")

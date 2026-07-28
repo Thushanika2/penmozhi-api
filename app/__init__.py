@@ -37,6 +37,8 @@ def create_app():
         CycleShare,
         WearableConnection,
         Subscription,
+        PrivacyRequest,
+        UserConsent,
     )
 
     @jwt.user_lookup_loader

@@ -8,7 +8,6 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.api_responses import error_response, message_response, validation_errors
 from app.extensions import db
-from app.models.cycle_share_model import CycleShare
 from app.models.health_profile_model import HealthProfile
 from app.models.password_reset_token_model import PasswordResetToken
 from app.models.pcos_disorder_status_model import PCOSDisorderStatus
@@ -23,6 +22,7 @@ from app.schemas.auth_schema import (
     UpdateProfileSchema,
 )
 from app.services.email_service import send_password_reset_email
+from app.services.privacy_service import create_privacy_request, record_signup_consents
 from app.utils import LANGUAGE_PREFERENCES, parse_date, utc_now
 
 TRACKING_MODES = ("period", "conceive", "pregnancy", "perimenopause", "non_bleeding")
@@ -85,6 +85,7 @@ def register():
             diagnosis_status="not_diagnosed",
         )
         db.session.add(pcos_status)
+        record_signup_consents(user.id)
         db.session.commit()
 
         return jsonify({
@@ -310,17 +311,12 @@ def delete_account():
         return error_response("auth.invalid_credentials", "Invalid email or password.", 401)
 
     try:
-        CycleShare.query.filter_by(shared_with_profile_id=user.id).update(
-            {"shared_with_profile_id": None},
-            synchronize_session=False,
-        )
-        db.session.delete(user)
+        create_privacy_request(user, "delete")
         db.session.commit()
-        return message_response(
-            "auth.account_deleted",
-            "Your account has been permanently deleted.",
-            200,
-        )
+        return jsonify({
+            "message": "Your account deletion request has been submitted. An administrator will process it shortly.",
+            "message_code": "privacy.delete_request_submitted",
+        }), 202
     except Exception:
         db.session.rollback()
         return error_response("server.internal_error", "An internal server error occurred.", 500)

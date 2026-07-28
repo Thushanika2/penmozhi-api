@@ -4,6 +4,7 @@ from flask import jsonify, make_response
 from flask_jwt_extended import current_user
 
 from app.api_responses import error_response
+from app.extensions import db
 from app.models.ai_health_assistant_session_model import AIHealthAssistantSession
 from app.models.cycle_history_log_model import CycleHistoryLog
 from app.models.custom_tag_model import CustomTag
@@ -14,12 +15,20 @@ from app.models.perimenopause_log_model import PerimenopauseLog
 from app.models.pcos_disorder_status_model import PCOSDisorderStatus
 from app.models.pregnancy_profile_model import PregnancyProfile
 from app.models.symptom_tracking_log_model import SymptomTrackingLog
+from app.services.privacy_service import create_privacy_request
 
 
 def export_account_data():
     user = current_user
     if not user:
         return error_response("auth.user_not_found", "User not found.", 404)
+
+    try:
+        create_privacy_request(user, "export")
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
 
     health = HealthProfile.query.filter_by(profile_id=user.id).first()
     pcos_statuses = []
