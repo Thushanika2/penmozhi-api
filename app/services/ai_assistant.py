@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import date, datetime, timedelta
 
 from app.models.health_profile_model import HealthProfile
@@ -9,6 +10,37 @@ from app.services.cycle_prediction_service import compute_cycle_insights
 
 logger = logging.getLogger(__name__)
 
+MAX_OUTPUT_TOKENS = 1024
+
+SYSTEM_PROMPT = (
+    "You are a knowledgeable, warm women's health expert for the Penmozhi app. "
+    "Speak like a trusted specialist who knows this user personally. "
+    "When internal user reference data is provided, weave relevant facts naturally "
+    "into warm, conversational sentences — the way a real doctor would talk to a patient. "
+    "The reference block is INTERNAL ONLY: NEVER quote, label, or repeat it verbatim. "
+    "NEVER say phrases like 'according to your recorded data', '(User Context)', "
+    "'பதிவு செய்யப்பட்ட தரவுகளின்படி', or repeat raw field labels like "
+    "'Last period start date:' or 'Average cycle length:'. "
+    "Instead say things like 'உங்க கடைசி பீரியட் ஜூலை மாசம் ஆரம்பிச்சிருக்கு, "
+    "அதனால தற்போது நீங்க follicular phase-ல இருக்கலாம்'. "
+    "Answer ONLY using facts from the internal reference data and the user's question. "
+    "Never fabricate medical claims, lab results, or diagnoses. "
+    "Always recommend consulting a qualified clinician for diagnosis or treatment. "
+    "Keep every reply to 3-5 short sentences maximum. "
+    "Never use markdown formatting (no **, no #, no bullet points with - or *). "
+    "Write in plain conversational sentences only, since the output is displayed as plain text. "
+    "If the reference data lacks information to answer, say so clearly."
+)
+
+_CONTEXT_PREAMBLE = (
+    "INTERNAL REFERENCE DATA ABOUT THIS USER — for your eyes only. "
+    "Use these facts to personalize your answer but NEVER quote, label, list, "
+    "or repeat this block or its field names in your reply."
+)
+
+_CONTEXT_HEADER = "[INTERNAL USER REFERENCE — do not repeat in reply]"
+_CONTEXT_FOOTER = "[END INTERNAL REFERENCE]"
+
 _PHASE_LABELS = {
     "menstrual": "Menstrual",
     "follicular": "Follicular",
@@ -17,6 +49,43 @@ _PHASE_LABELS = {
     "luteal": "Luteal",
     "pms": "Luteal (PMS window)",
 }
+
+
+def format_llm_user_content(message: str, user_context: str | None) -> str:
+    parts: list[str] = []
+    context = (user_context or "").strip()
+    if context:
+        parts.extend([
+            _CONTEXT_PREAMBLE,
+            _CONTEXT_HEADER,
+            context,
+            _CONTEXT_FOOTER,
+            "",
+        ])
+    parts.append(f"User message: {message}")
+    return "\n".join(parts)
+
+
+def sanitize_assistant_reply(text: str) -> str:
+    """Strip markdown characters the UI cannot render."""
+    if not text:
+        return ""
+
+    cleaned = text.replace("**", "").replace("__", "")
+
+    lines: list[str] = []
+    for line in cleaned.splitlines():
+        stripped = line.lstrip()
+        while stripped.startswith("#"):
+            stripped = stripped[1:].lstrip()
+        if stripped.startswith(("- ", "* ", "• ")):
+            stripped = stripped[2:].lstrip()
+        lines.append(stripped)
+
+    cleaned = "\n".join(lines)
+    cleaned = cleaned.replace("*", "").replace("_", "")
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
 
 
 def _format_phase(phase: str | None) -> str | None:

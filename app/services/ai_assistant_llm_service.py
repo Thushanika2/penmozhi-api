@@ -2,35 +2,37 @@ import logging
 
 from flask import current_app
 
+from app.services.ai_assistant import (
+    MAX_OUTPUT_TOKENS,
+    SYSTEM_PROMPT,
+    format_llm_user_content,
+    sanitize_assistant_reply,
+)
+
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = (
-    "You are a knowledgeable, warm women's health expert for the Penmozhi app. "
-    "Speak like a trusted specialist who knows this user personally: when user context "
-    "is provided, reference their own cycle length, last period, phase, symptoms, and "
-    "PCOS status naturally (for example, 'your 28-day cycle' or 'உங்க cycle 28 நாள்') "
-    "instead of only generic textbook advice. "
-    "Answer ONLY using the user context provided in the message. "
-    "Never fabricate medical claims, lab results, or diagnoses. "
-    "Always recommend consulting a qualified clinician for diagnosis or treatment. "
-    "Be supportive, concise, and evidence-aware. "
-    "If the context lacks information to answer, say so clearly."
-)
 
-_USER_CONTEXT_HEADER = (
-    "[USER CONTEXT — use this to personalize your answer, but never invent "
-    "details not listed here]"
-)
-_USER_CONTEXT_FOOTER = "[END USER CONTEXT]"
+def _log_gemini_finish_reason(response) -> None:
+    if not response.candidates:
+        logger.warning("Gemini response has no candidates.")
+        return
+
+    finish_reason = response.candidates[0].finish_reason
+    logger.info("Gemini finish_reason: %s", finish_reason)
+
+    reason_name = getattr(finish_reason, "name", str(finish_reason))
+    if reason_name == "MAX_TOKENS":
+        logger.warning(
+            "Gemini response truncated (MAX_TOKENS). "
+            "Consider shortening the reply prompt or raising max_output_tokens."
+        )
 
 
-def _format_user_content(message: str, user_context: str | None) -> str:
-    parts: list[str] = []
-    context = (user_context or "").strip()
-    if context:
-        parts.extend([_USER_CONTEXT_HEADER, context, _USER_CONTEXT_FOOTER, ""])
-    parts.append(f"User message: {message}")
-    return "\n".join(parts)
+def _finalize_reply(text: str | None) -> str | None:
+    if not text:
+        return None
+    cleaned = sanitize_assistant_reply(text)
+    return cleaned or None
 
 
 def _call_gemini(message: str, user_context: str | None) -> str | None:
@@ -45,15 +47,15 @@ def _call_gemini(message: str, user_context: str | None) -> str | None:
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
             model=current_app.config.get("GEMINI_MODEL", "gemini-flash-latest"),
-            contents=_format_user_content(message, user_context),
+            contents=format_llm_user_content(message, user_context),
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
-                max_output_tokens=800,
+                max_output_tokens=MAX_OUTPUT_TOKENS,
                 temperature=0.4,
             ),
         )
-        text = (response.text or "").strip()
-        return text or None
+        _log_gemini_finish_reason(response)
+        return _finalize_reply(response.text)
     except ImportError:
         logger.error(
             "google-genai is not installed. Run: pip install -r requirements.txt"
@@ -75,15 +77,14 @@ def _call_anthropic(message: str, user_context: str | None) -> str | None:
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
             model=current_app.config.get("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022"),
-            max_tokens=800,
+            max_tokens=MAX_OUTPUT_TOKENS,
             system=SYSTEM_PROMPT,
             messages=[
-                {"role": "user", "content": _format_user_content(message, user_context)},
+                {"role": "user", "content": format_llm_user_content(message, user_context)},
             ],
         )
         text_blocks = [block.text for block in response.content if hasattr(block, "text")]
-        text = "\n".join(text_blocks).strip()
-        return text or None
+        return _finalize_reply("\n".join(text_blocks).strip())
     except Exception:
         logger.exception("Anthropic call failed.")
         return None
