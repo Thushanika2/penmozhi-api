@@ -1,16 +1,20 @@
-import json
 import logging
 
-from flask import current_app, jsonify, request
+from flask import jsonify, request
 from flask_jwt_extended import current_user
 
 from app.api_responses import error_response, validation_errors
 from app.extensions import db
 from app.models.ai_health_assistant_session_model import AIHealthAssistantSession
-from app.models.cycle_history_log_model import CycleHistoryLog
-from app.models.health_profile_model import HealthProfile
-from app.models.pcos_disorder_status_model import PCOSDisorderStatus
 from app.models.symptom_tracking_log_model import SymptomTrackingLog
+from app.services.ai_assistant import build_user_context
+from app.services.ai_assistant_chat_store import (
+    append_exchange,
+    create_session,
+    get_session_for_user,
+    parse_chat_messages,
+    session_preview,
+)
 from app.services.pcos_pattern_service import detect_pcos_patterns
 from app.services.ai_assistant_llm_service import generate_assistant_reply
 
@@ -54,39 +58,14 @@ def _build_recommendations(message, symptoms):
     return recommendations
 
 
-def _active_pcos_status(user):
-    health = HealthProfile.query.filter_by(profile_id=user.id).first()
-    if not health:
-        return None
-    return (
-        PCOSDisorderStatus.query.filter_by(health_profile_id=health.id)
-        .order_by(PCOSDisorderStatus.created_at.desc())
-        .first()
-    )
-
-
-def _build_llm_context(user):
-    symptoms = (
-        SymptomTrackingLog.query.filter_by(profile_id=user.id)
-        .order_by(SymptomTrackingLog.date_time.desc())
-        .limit(20)
-        .all()
-    )
-    cycles = (
-        CycleHistoryLog.query.filter_by(profile_id=user.id)
-        .order_by(CycleHistoryLog.cycle_start_date.desc())
-        .limit(6)
-        .all()
-    )
-    pcos = _active_pcos_status(user)
-    patterns = detect_pcos_patterns(user)
-
+def _session_payload(session: AIHealthAssistantSession) -> dict:
+    messages = parse_chat_messages(session.saved_chat_sessions)
+    preview = session_preview(messages)
     return {
-        "mode": user.mode,
-        "recent_symptoms": [s.to_dict() for s in symptoms],
-        "recent_cycles": [c.to_dict() for c in cycles],
-        "pcos_status": pcos.to_dict() if pcos else None,
-        "pcos_patterns": patterns.get("patterns", []),
+        **session.to_dict(),
+        "messages": messages,
+        "message_count": len(messages),
+        "preview": preview,
     }
 
 
@@ -100,6 +79,17 @@ def chat():
         return validation_errors([("validation.message_required", "message is required.")], 400)
 
     message = str(message).strip()
+    session_id = data.get("session_id")
+    new_session = bool(data.get("new_session"))
+
+    if session_id is not None:
+        try:
+            session_id = int(session_id)
+        except (TypeError, ValueError):
+            return validation_errors(
+                [("validation.session_id_invalid", "session_id must be an integer.")],
+                400,
+            )
 
     try:
         symptoms = (
@@ -108,7 +98,7 @@ def chat():
             .limit(20)
             .all()
         )
-        context = _build_llm_context(current_user)
+        user_context = build_user_context(current_user.id)
         analysis = {
             "recent_symptom_count": len(symptoms),
             "max_pain": max((s.pain_severity for s in symptoms), default=0),
@@ -116,36 +106,82 @@ def chat():
             "mode": current_user.mode,
         }
 
-        llm_reply = generate_assistant_reply(message, context)
+        llm_reply = generate_assistant_reply(message, user_context)
         if llm_reply:
             reply = llm_reply
-            recommendations = [llm_reply]
+            recommendations = _build_recommendations(message, symptoms)
         else:
             recommendations = _build_recommendations(message, symptoms)
             reply = " ".join(recommendations)
 
-        session = AIHealthAssistantSession(
-            profile_id=current_user.id,
-            symptom_analysis_log=json.dumps(analysis),
-            generated_recommendations=json.dumps(recommendations),
-            posted_messages=json.dumps([{"role": "user", "content": message}]),
-            saved_chat_sessions=json.dumps([
-                {"role": "user", "content": message},
-                {"role": "assistant", "content": reply},
-            ]),
+        existing = get_session_for_user(
+            current_user.id,
+            session_id=session_id,
+            new_session=new_session,
         )
-        db.session.add(session)
+
+        if existing:
+            append_exchange(
+                existing,
+                message,
+                reply,
+                analysis=analysis,
+                recommendations=recommendations,
+            )
+            session = existing
+        else:
+            session = create_session(
+                current_user.id,
+                message,
+                reply,
+                analysis=analysis,
+                recommendations=recommendations,
+            )
+
         db.session.commit()
 
+        session_data = _session_payload(session)
         return jsonify({
             "message": "Chat response generated.",
             "message_code": "ai.chat_generated",
             "reply": reply,
             "recommendations": recommendations,
-            "session": session.to_dict(),
+            "session_id": session.id,
+            "messages": session_data["messages"],
+            "session": session_data,
         }), 201
     except Exception:
         db.session.rollback()
+        logger.exception("AI assistant chat failed.")
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
+
+
+def get_chat_history():
+    session_id = request.args.get("session_id", type=int)
+
+    try:
+        if session_id is not None:
+            session = get_session_for_user(current_user.id, session_id=session_id)
+            if not session:
+                return error_response("ai.session_not_found", "Chat session not found.", 404)
+        else:
+            session = get_session_for_user(current_user.id)
+
+        if not session:
+            return jsonify({
+                "session_id": None,
+                "messages": [],
+                "session": None,
+            }), 200
+
+        session_data = _session_payload(session)
+        return jsonify({
+            "session_id": session.id,
+            "messages": session_data["messages"],
+            "session": session_data,
+        }), 200
+    except Exception:
+        logger.exception("Failed to load AI assistant chat history.")
         return error_response("server.internal_error", "An internal server error occurred.", 500)
 
 
@@ -179,7 +215,9 @@ def get_sessions():
             .limit(20)
             .all()
         )
-        return jsonify({"sessions": [session.to_dict() for session in sessions]}), 200
+        return jsonify({
+            "sessions": [_session_payload(session) for session in sessions],
+        }), 200
     except Exception:
         logger.exception("Failed to load AI assistant sessions.")
         return error_response("server.internal_error", "An internal server error occurred.", 500)

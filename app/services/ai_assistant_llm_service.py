@@ -1,4 +1,3 @@
-import json
 import logging
 
 from flask import current_app
@@ -6,23 +5,35 @@ from flask import current_app
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
-    "You are a women's health assistant for the Penmozhi app. "
-    "Answer ONLY using the structured user context provided. "
+    "You are a knowledgeable, warm women's health expert for the Penmozhi app. "
+    "Speak like a trusted specialist who knows this user personally: when user context "
+    "is provided, reference their own cycle length, last period, phase, symptoms, and "
+    "PCOS status naturally (for example, 'your 28-day cycle' or 'உங்க cycle 28 நாள்') "
+    "instead of only generic textbook advice. "
+    "Answer ONLY using the user context provided in the message. "
     "Never fabricate medical claims, lab results, or diagnoses. "
     "Always recommend consulting a qualified clinician for diagnosis or treatment. "
     "Be supportive, concise, and evidence-aware. "
     "If the context lacks information to answer, say so clearly."
 )
 
+_USER_CONTEXT_HEADER = (
+    "[USER CONTEXT — use this to personalize your answer, but never invent "
+    "details not listed here]"
+)
+_USER_CONTEXT_FOOTER = "[END USER CONTEXT]"
 
-def _format_user_content(message: str, context: dict) -> str:
-    return (
-        f"User message: {message}\n\n"
-        f"Context JSON:\n{json.dumps(context, indent=2, default=str)}"
-    )
+
+def _format_user_content(message: str, user_context: str | None) -> str:
+    parts: list[str] = []
+    context = (user_context or "").strip()
+    if context:
+        parts.extend([_USER_CONTEXT_HEADER, context, _USER_CONTEXT_FOOTER, ""])
+    parts.append(f"User message: {message}")
+    return "\n".join(parts)
 
 
-def _call_gemini(message: str, context: dict) -> str | None:
+def _call_gemini(message: str, user_context: str | None) -> str | None:
     api_key = current_app.config.get("GEMINI_API_KEY")
     if not api_key:
         return None
@@ -34,7 +45,7 @@ def _call_gemini(message: str, context: dict) -> str | None:
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
             model=current_app.config.get("GEMINI_MODEL", "gemini-flash-latest"),
-            contents=_format_user_content(message, context),
+            contents=_format_user_content(message, user_context),
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
                 max_output_tokens=800,
@@ -53,7 +64,7 @@ def _call_gemini(message: str, context: dict) -> str | None:
         return None
 
 
-def _call_anthropic(message: str, context: dict) -> str | None:
+def _call_anthropic(message: str, user_context: str | None) -> str | None:
     api_key = current_app.config.get("ANTHROPIC_API_KEY")
     if not api_key:
         return None
@@ -67,7 +78,7 @@ def _call_anthropic(message: str, context: dict) -> str | None:
             max_tokens=800,
             system=SYSTEM_PROMPT,
             messages=[
-                {"role": "user", "content": _format_user_content(message, context)},
+                {"role": "user", "content": _format_user_content(message, user_context)},
             ],
         )
         text_blocks = [block.text for block in response.content if hasattr(block, "text")]
@@ -104,14 +115,14 @@ def _provider_order() -> list[str]:
     return order
 
 
-def generate_assistant_reply(message: str, context: dict) -> str | None:
+def generate_assistant_reply(message: str, user_context: str | None = None) -> str | None:
     callers = {
         "gemini": _call_gemini,
         "anthropic": _call_anthropic,
     }
 
     for provider in _provider_order():
-        reply = callers[provider](message, context)
+        reply = callers[provider](message, user_context)
         if reply:
             logger.info("AI assistant reply generated via %s.", provider)
             return reply

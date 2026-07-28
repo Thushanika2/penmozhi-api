@@ -18,6 +18,12 @@ def get_recommendations():
     return ctrl.get_recommendations()
 
 
+@ai_assistant_bp.route("/history", methods=["GET"])
+@roles_required("user")
+def get_chat_history():
+    return ctrl.get_chat_history()
+
+
 @ai_assistant_bp.route("/sessions", methods=["GET"])
 @roles_required("user")
 def get_sessions():

@@ -1,4 +1,5 @@
 from datetime import date, datetime, time
+import json
 
 from app.extensions import db
 from app.models.ai_health_assistant_session_model import AIHealthAssistantSession
@@ -182,12 +183,28 @@ def seed_forum_and_ai(user):
         db.session.add(comment)
 
     if not AIHealthAssistantSession.query.filter_by(profile_id=user.id).first():
+        seed_messages = json.dumps([
+            {"role": "user", "content": "I feel tired and anxious during my cycle."},
+            {
+                "role": "assistant",
+                "content": "Try gentle activity and balanced meals, and keep tracking symptoms.",
+            },
+        ])
         session = AIHealthAssistantSession(
             profile_id=user.id,
-            symptom_analysis_log="Reported fatigue, mild cramps, and mood changes over the last week.",
-            generated_recommendations="Rest, hydrate, and continue tracking symptoms for 7 days.",
-            posted_messages="User: I feel tired and anxious. Assistant: Try gentle activity and balanced meals.",
-            saved_chat_sessions="Session saved on 2026-06-04.",
+            symptom_analysis_log=json.dumps({
+                "recent_symptom_count": 3,
+                "max_pain": 4,
+                "categories": ["fatigue", "mood"],
+                "mode": user.mode,
+            }),
+            generated_recommendations=json.dumps([
+                "Rest, hydrate, and continue tracking symptoms for 7 days.",
+            ]),
+            posted_messages=json.dumps([
+                {"role": "user", "content": "I feel tired and anxious during my cycle."},
+            ]),
+            saved_chat_sessions=seed_messages,
         )
         db.session.add(session)
 
