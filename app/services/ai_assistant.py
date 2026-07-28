@@ -11,6 +11,7 @@ from app.services.cycle_prediction_service import compute_cycle_insights
 logger = logging.getLogger(__name__)
 
 MAX_OUTPUT_TOKENS = 1024
+CONVERSATION_HISTORY_LIMIT = 10
 
 SYSTEM_PROMPT = (
     "You are a knowledgeable, warm women's health expert for the Penmozhi app. "
@@ -27,6 +28,8 @@ SYSTEM_PROMPT = (
     "Never fabricate medical claims, lab results, or diagnoses. "
     "Always recommend consulting a qualified clinician for diagnosis or treatment. "
     "Keep every reply to 3-5 short sentences maximum. "
+    "When prior conversation turns are provided, treat follow-up questions in context "
+    "of what was already discussed — do not ask the user to repeat themselves. "
     "Never use markdown formatting (no **, no #, no bullet points with - or *). "
     "Write in plain conversational sentences only, since the output is displayed as plain text. "
     "If the reference data lacks information to answer, say so clearly."
@@ -49,6 +52,37 @@ _PHASE_LABELS = {
     "luteal": "Luteal",
     "pms": "Luteal (PMS window)",
 }
+
+
+def build_system_instruction(user_context: str | None) -> str:
+    """Persona, safety rules, and cycle context — kept out of turn-by-turn contents."""
+    parts = [SYSTEM_PROMPT]
+    context = (user_context or "").strip()
+    if context:
+        parts.extend([
+            "",
+            _CONTEXT_PREAMBLE,
+            _CONTEXT_HEADER,
+            context,
+            _CONTEXT_FOOTER,
+        ])
+    return "\n".join(parts)
+
+
+def build_gemini_contents(
+    history_messages: list[dict[str, str]],
+    new_message: str,
+) -> list[dict]:
+    """Build alternating user/model turns for Gemini multi-turn chat."""
+    contents: list[dict] = []
+    for msg in history_messages:
+        role = "user" if msg.get("role") == "user" else "model"
+        text = (msg.get("content") or "").strip()
+        if not text:
+            continue
+        contents.append({"role": role, "parts": [{"text": text}]})
+    contents.append({"role": "user", "parts": [{"text": new_message}]})
+    return contents
 
 
 def format_llm_user_content(message: str, user_context: str | None) -> str:

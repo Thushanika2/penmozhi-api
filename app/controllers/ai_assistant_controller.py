@@ -7,10 +7,11 @@ from app.api_responses import error_response, validation_errors
 from app.extensions import db
 from app.models.ai_health_assistant_session_model import AIHealthAssistantSession
 from app.models.symptom_tracking_log_model import SymptomTrackingLog
-from app.services.ai_assistant import build_user_context
+from app.services.ai_assistant import CONVERSATION_HISTORY_LIMIT, build_user_context
 from app.services.ai_assistant_chat_store import (
     append_exchange,
     create_session,
+    get_recent_messages,
     get_session_for_user,
     parse_chat_messages,
     session_preview,
@@ -79,15 +80,15 @@ def chat():
         return validation_errors([("validation.message_required", "message is required.")], 400)
 
     message = str(message).strip()
-    session_id = data.get("session_id")
+    chat_id = data.get("chat_id", data.get("session_id"))
     new_session = bool(data.get("new_session"))
 
-    if session_id is not None:
+    if chat_id is not None:
         try:
-            session_id = int(session_id)
+            chat_id = int(chat_id)
         except (TypeError, ValueError):
             return validation_errors(
-                [("validation.session_id_invalid", "session_id must be an integer.")],
+                [("validation.session_id_invalid", "chat_id must be an integer.")],
                 400,
             )
 
@@ -106,19 +107,28 @@ def chat():
             "mode": current_user.mode,
         }
 
-        llm_reply = generate_assistant_reply(message, user_context)
+        existing = get_session_for_user(
+            current_user.id,
+            session_id=chat_id,
+            new_session=new_session,
+        )
+        history_messages = (
+            get_recent_messages(existing, CONVERSATION_HISTORY_LIMIT)
+            if existing
+            else []
+        )
+
+        llm_reply = generate_assistant_reply(
+            message,
+            user_context,
+            history_messages=history_messages,
+        )
         if llm_reply:
             reply = llm_reply
             recommendations = _build_recommendations(message, symptoms)
         else:
             recommendations = _build_recommendations(message, symptoms)
             reply = " ".join(recommendations)
-
-        existing = get_session_for_user(
-            current_user.id,
-            session_id=session_id,
-            new_session=new_session,
-        )
 
         if existing:
             append_exchange(
@@ -146,6 +156,7 @@ def chat():
             "message_code": "ai.chat_generated",
             "reply": reply,
             "recommendations": recommendations,
+            "chat_id": session.id,
             "session_id": session.id,
             "messages": session_data["messages"],
             "session": session_data,

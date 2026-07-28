@@ -52,6 +52,17 @@ def get_session_for_user(
     return query.order_by(AIHealthAssistantSession.created_at.desc()).first()
 
 
+def get_recent_messages(
+    session: AIHealthAssistantSession,
+    limit: int = 10,
+) -> list[dict[str, str]]:
+    """Return the last N stored messages for a session, oldest first."""
+    messages = parse_chat_messages(session.saved_chat_sessions)
+    if len(messages) <= limit:
+        return messages
+    return messages[-limit:]
+
+
 def append_exchange(
     session: AIHealthAssistantSession,
     user_message: str,
