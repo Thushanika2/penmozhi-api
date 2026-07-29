@@ -24,6 +24,28 @@ CORS(
 logger = logging.getLogger(__name__)
 
 
+def run_migrations(max_retries=3, retry_delay=3):
+    from flask_migrate import upgrade
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            with app.app_context():
+                upgrade()
+            logger.info("Database migrations applied successfully.")
+            return
+        except Exception as exc:
+            if attempt == max_retries:
+                logger.exception("Database migration failed after %s attempts.", max_retries)
+                raise
+            logger.warning(
+                "Database migration attempt %s/%s failed: %s",
+                attempt,
+                max_retries,
+                exc,
+            )
+            time.sleep(retry_delay)
+
+
 def initialize_database(max_retries=10, retry_delay=3):
     if not app.config.get("SQLALCHEMY_DATABASE_URI"):
         logger.warning("Database URI is not configured; skipping table creation.")
@@ -51,9 +73,13 @@ def initialize_database(max_retries=10, retry_delay=3):
 
 if os.getenv("RAILWAY_ENVIRONMENT"):
     try:
-        initialize_database()
+        run_migrations()
     except Exception:
-        logger.exception("Continuing startup without initialized database tables.")
+        logger.exception("Migration step failed; attempting create_all fallback.")
+        try:
+            initialize_database()
+        except Exception:
+            logger.exception("Continuing startup without initialized database tables.")
 
 if __name__ == "__main__":
     initialize_database()

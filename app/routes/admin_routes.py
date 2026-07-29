@@ -1,6 +1,7 @@
 from flask import Blueprint
 
 from app.controllers import admin_controller as ctrl
+from app.controllers import admin_user_controller as user_ctrl
 from app.controllers import privacy_admin_controller as privacy_ctrl
 from app.middleware import roles_required
 
@@ -70,7 +71,55 @@ def analytics():
 @admin_bp.route("/users", methods=["GET"])
 @roles_required("admin")
 def list_users():
-    return ctrl.list_users()
+    return user_ctrl.list_users()
+
+
+@admin_bp.route("/users/test-candidates", methods=["GET"])
+@roles_required("admin")
+def test_account_candidates():
+    return user_ctrl.test_account_candidates()
+
+
+@admin_bp.route("/users/bulk-export", methods=["POST"])
+@roles_required("admin")
+def bulk_export_users():
+    return user_ctrl.bulk_export()
+
+
+@admin_bp.route("/users/<int:user_id>", methods=["GET"])
+@roles_required("admin")
+def get_user(user_id):
+    return user_ctrl.get_user(user_id)
+
+
+@admin_bp.route("/users/<int:user_id>/toggle-suspend", methods=["POST"])
+@roles_required("admin")
+def toggle_suspend_user(user_id):
+    return user_ctrl.toggle_suspend(user_id)
+
+
+@admin_bp.route("/users/<int:user_id>/status", methods=["PATCH"])
+@roles_required("admin")
+def update_user_status(user_id):
+    return user_ctrl.update_status(user_id)
+
+
+@admin_bp.route("/users/<int:user_id>/force-logout", methods=["POST"])
+@roles_required("admin")
+def force_logout_user(user_id):
+    return user_ctrl.force_logout(user_id)
+
+
+@admin_bp.route("/users/<int:user_id>/request-delete", methods=["POST"])
+@roles_required("admin")
+def request_delete_user(user_id):
+    return user_ctrl.request_delete(user_id)
+
+
+@admin_bp.route("/users/<int:user_id>/test-account", methods=["PATCH"])
+@roles_required("admin")
+def toggle_test_account(user_id):
+    return user_ctrl.toggle_test_account(user_id)
 
 
 @admin_bp.route("/export/<report_type>", methods=["GET"])

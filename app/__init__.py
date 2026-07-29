@@ -39,6 +39,7 @@ def create_app():
         Subscription,
         PrivacyRequest,
         UserConsent,
+        AdminActionLog,
     )
 
     @jwt.user_lookup_loader

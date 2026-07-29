@@ -116,7 +116,31 @@ def login():
         if not user or not user.check_password(str(validated["password"])):
             return error_response("auth.invalid_credentials", "Invalid email or password.", 401)
 
+        status = getattr(user, "status", "active")
+        if status != "active":
+            if status == "suspended":
+                return error_response(
+                    "auth.account_suspended",
+                    "Your account has been suspended. Please contact support.",
+                    403,
+                )
+            if status == "banned":
+                return error_response(
+                    "auth.account_banned",
+                    "Your account has been banned.",
+                    403,
+                )
+            return error_response(
+                "auth.account_inactive",
+                "Your account is not active.",
+                403,
+            )
+
+        user.login_count = (user.login_count or 0) + 1
+        user.last_active_at = utc_now()
+
         access_token, refresh_token = _issue_tokens(user)
+        db.session.commit()
         return jsonify({
             "message": "Login successful.",
             "access_token": access_token,
@@ -338,6 +362,43 @@ def refresh():
         user = db.session.get(UserProfile, user_id)
         if not user:
             return error_response("auth.user_not_found", "User not found.", 404)
+
+        status = getattr(user, "status", "active")
+        if status != "active":
+            if status == "suspended":
+                return error_response(
+                    "auth.account_suspended",
+                    "Your account has been suspended. Please contact support.",
+                    403,
+                )
+            if status == "banned":
+                return error_response(
+                    "auth.account_banned",
+                    "Your account has been banned.",
+                    403,
+                )
+            return error_response(
+                "auth.account_inactive",
+                "Your account is not active.",
+                403,
+            )
+
+        token_valid_after = getattr(user, "token_valid_after", None)
+        if token_valid_after:
+            from datetime import datetime, timezone
+
+            issued_at = decoded.get("iat")
+            if issued_at is not None:
+                token_issued = datetime.fromtimestamp(issued_at, tz=timezone.utc)
+                valid_after = token_valid_after
+                if valid_after.tzinfo is None:
+                    valid_after = valid_after.replace(tzinfo=timezone.utc)
+                if token_issued < valid_after:
+                    return error_response(
+                        "auth.session_expired",
+                        "Your session has expired. Please sign in again.",
+                        401,
+                    )
 
         access_token, refresh_token = _issue_tokens(user)
         return jsonify({

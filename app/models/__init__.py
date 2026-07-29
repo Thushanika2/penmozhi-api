@@ -20,6 +20,7 @@ from app.models.wearable_connection_model import WearableConnection
 from app.models.subscription_model import Subscription
 from app.models.privacy_request_model import PrivacyRequest
 from app.models.user_consent_model import UserConsent
+from app.models.admin_action_log_model import AdminActionLog
 
 __all__ = [
     "UserProfile",
@@ -44,4 +45,5 @@ __all__ = [
     "Subscription",
     "PrivacyRequest",
     "UserConsent",
+    "AdminActionLog",
 ]

@@ -16,6 +16,11 @@ class UserProfile(db.Model):
     timezone = db.Column(db.String(64), nullable=False, default="Asia/Kolkata")
     onboarding_completed = db.Column(db.Boolean, nullable=False, default=False)
     role = db.Column(db.String(20), nullable=False, default="user")
+    status = db.Column(db.String(20), nullable=False, default="active")
+    token_valid_after = db.Column(db.DateTime, nullable=True)
+    is_test_account = db.Column(db.Boolean, nullable=False, default=False)
+    last_active_at = db.Column(db.DateTime, nullable=True)
+    login_count = db.Column(db.Integer, nullable=False, default=0)
     registration_date = db.Column(db.DateTime, default=utc_now)
     mode = db.Column(db.String(30), nullable=False, default="period")
     pin_hash = db.Column(db.String(255), nullable=True)
@@ -148,6 +153,12 @@ class UserProfile(db.Model):
             "timezone": self.timezone,
             "onboarding_completed": self.onboarding_completed,
             "role": self.role,
+            "status": self.status,
+            "is_test_account": self.is_test_account,
+            "last_active_at": (
+                self.last_active_at.isoformat() if self.last_active_at else None
+            ),
+            "login_count": self.login_count,
             "registration_date": (
                 self.registration_date.isoformat() if self.registration_date else None
             ),
