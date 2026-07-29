@@ -13,6 +13,7 @@ from app.config import Config
 from app.extensions import db
 from app.models import (
     AIHealthAssistantSession,
+    AdminActionLog,
     CycleHistoryLog,
     CycleShare,
     CustomTag,
@@ -26,10 +27,12 @@ from app.models import (
     PCOSDisorderStatus,
     PerimenopauseLog,
     PregnancyProfile,
+    PrivacyRequest,
     PushSubscription,
     Subscription,
     SymptomTrackingLog,
     TrackingCategory,
+    UserConsent,
     UserProfile,
     WearableConnection,
 )
@@ -57,6 +60,9 @@ DELETE_ORDER = (
     HealthProfile,
     EducationalResource,
     TrackingCategory,
+    AdminActionLog,
+    PrivacyRequest,
+    UserConsent,
     UserProfile,
 )
 
