@@ -85,13 +85,21 @@ class OnboardingSchema(Schema):
         validate=validate.OneOf(CYCLE_REGULARITY),
     )
 
-    # Step 3 & 4 — Multi-select
-    common_symptoms = fields.List(fields.Str(), required=True)
-    health_conditions = fields.List(fields.Str(), required=True)
+    # Step 3 & 4 — Multi-select (at least one option required)
+    common_symptoms = fields.List(
+        fields.Str(),
+        required=True,
+        validate=validate.Length(min=1, error="Select at least one symptom option."),
+    )
+    health_conditions = fields.List(
+        fields.Str(),
+        required=True,
+        validate=validate.Length(min=1, error="Select at least one health condition option."),
+    )
 
-    # Step 5 — Lifestyle
-    sleep_hours = fields.Float(required=True, validate=validate.Range(min=0, max=24))
-    water_intake_liters = fields.Float(required=True, validate=validate.Range(min=0, max=20))
+    # Step 5 — Lifestyle (must be positive, not zero placeholders)
+    sleep_hours = fields.Float(required=True, validate=validate.Range(min=0.5, max=24))
+    water_intake_liters = fields.Float(required=True, validate=validate.Range(min=0.1, max=20))
     exercise_frequency = fields.Str(required=True, validate=validate.OneOf(EXERCISE_FREQUENCIES))
     stress_level = fields.Str(required=True, validate=validate.OneOf(STRESS_LEVELS))
     smoking = fields.Bool(required=True)
@@ -131,12 +139,17 @@ class OnboardingSchema(Schema):
                 }
             )
 
-        if data.get("using_birth_control") and not data.get("birth_control_type"):
+        birth_control_type = data.get("birth_control_type") or "none"
+        if data.get("using_birth_control") and birth_control_type in (None, "", "none"):
             raise ValidationError(
-                {"birth_control_type": ["birth_control_type is required when using birth control."]}
+                {
+                    "birth_control_type": [
+                        "birth_control_type is required when using birth control."
+                    ]
+                }
             )
 
-        if data.get("birth_control_type") not in BIRTH_CONTROL_TYPES:
+        if birth_control_type not in BIRTH_CONTROL_TYPES:
             raise ValidationError(
                 {"birth_control_type": ["Invalid birth control type."]}
             )
