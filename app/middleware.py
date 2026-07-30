@@ -79,6 +79,17 @@ def roles_required(*roles):
                     "Access forbidden: insufficient permissions.",
                     403,
                 )
+            # Dashboard/app APIs require completed onboarding for regular users.
+            if (
+                current_user.role == "user"
+                and "user" in roles
+                and not getattr(current_user, "onboarding_completed", False)
+            ):
+                return error_response(
+                    "onboarding.incomplete",
+                    "Please complete onboarding before using the app.",
+                    403,
+                )
             return fn(*args, **kwargs)
 
         return wrapper
