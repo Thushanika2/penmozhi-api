@@ -53,24 +53,24 @@ def create_app():
 
     init_scheduler(app)
 
-    @app.route("/", methods=["GET"])
-    def api_home():
-        return jsonify({
-            "message": "Penmozhi Women's Health API",
-            "version": "1.0",
-            "endpoints": {
-                "auth": "/api/auth",
-                "health_profiles": "/api/health-profiles",
-                "cycles": "/api/cycles",
-                "symptoms": "/api/symptoms",
-                "reminders": "/api/reminders",
-                "ai_assistant": "/api/ai-assistant",
-                "pcos_status": "/api/pcos-status",
-                "education": "/api/education",
-                "forum": "/api/forum",
-                "admin": "/admin",
-            },
-        })
+    # @app.route("/", methods=["GET"])
+    # def api_home():
+    #     return jsonify({
+    #         "message": "Penmozhi Women's Health API",
+    #         "version": "1.0",
+    #         "endpoints": {
+    #             "auth": "/api/auth",
+    #             "health_profiles": "/api/health-profiles",
+    #             "cycles": "/api/cycles",
+    #             "symptoms": "/api/symptoms",
+    #             "reminders": "/api/reminders",
+    #             "ai_assistant": "/api/ai-assistant",
+    #             "pcos_status": "/api/pcos-status",
+    #             "education": "/api/education",
+    #             "forum": "/api/forum",
+    #             "admin": "/admin",
+    #         },
+    #     })
 
     @app.errorhandler(OperationalError)
     def handle_operational_error(err):
