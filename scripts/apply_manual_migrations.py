@@ -103,6 +103,7 @@ def main() -> int:
 
         print("Applying daily logs module...")
         add_column("cycle_history_logs", "notes TEXT NULL")
+        add_column("cycle_history_logs", "gap_reason VARCHAR(50) NULL")
 
         if not table_exists("daily_logs"):
             run_sql(

@@ -11,6 +11,8 @@ class CycleHistoryLog(db.Model):
     cycle_end_date = db.Column(db.Date, nullable=False)
     flow_intensity = db.Column(db.String(50), nullable=False)
     notes = db.Column(db.Text, nullable=True)
+    # Why a gap before this period was unusually long (medication, medical, etc.).
+    gap_reason = db.Column(db.String(50), nullable=True)
     predicted_next_period_date = db.Column(db.Date, nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
 
@@ -28,6 +30,7 @@ class CycleHistoryLog(db.Model):
             ),
             "flow_intensity": self.flow_intensity,
             "notes": self.notes,
+            "gap_reason": self.gap_reason,
             "predicted_next_period_date": (
                 self.predicted_next_period_date.isoformat()
                 if self.predicted_next_period_date

@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from statistics import median
 
 PHASE_MENSTRUAL = "menstrual"
 PHASE_FOLLICULAR = "follicular"
@@ -13,6 +14,26 @@ LUTEAL_PHASE_DAYS = 14
 OVULATION_WINDOW_RADIUS = 1
 # PMS commonly occurs in the final ~7 days before the next period.
 PMS_DAYS_BEFORE_PERIOD = 7
+
+# Typical menstrual cycle bounds used for prediction (WHO / ACOG common range).
+MIN_CYCLE_LENGTH = 21
+MAX_TYPICAL_CYCLE_LENGTH = 45
+# Gaps longer than this are treated as outliers (missed logs, medication, illness, etc.).
+UNUSUAL_GAP_DAYS = MAX_TYPICAL_CYCLE_LENGTH + 1
+# Prefer recent typical cycles when estimating length.
+RECENT_TYPICAL_WINDOW = 6
+
+GAP_REASON_CHOICES = frozenset(
+    {
+        "medication",
+        "medical",
+        "stress",
+        "missed_logging",
+        "contraception",
+        "pregnancy_postpartum",
+        "other",
+    }
+)
 
 
 def _empty_insights():
@@ -35,13 +56,107 @@ def _empty_insights():
         "average_cycle_length": 28,
         "average_period_length": 5,
         "phase_ranges": None,
+        "prediction_quality": None,
         "statistics": {
             "average_cycle_length": None,
             "average_period_length": None,
             "longest_cycle": None,
             "shortest_cycle": None,
             "logged_cycles": 0,
+            "typical_cycles_used": 0,
+            "outlier_gaps_excluded": 0,
         },
+    }
+
+
+def clamp_cycle_length(length: int, default: int = 28) -> int:
+    """Clamp a cycle length into the typical prediction range."""
+    try:
+        value = int(length)
+    except (TypeError, ValueError):
+        value = int(default)
+    return max(MIN_CYCLE_LENGTH, min(value, MAX_TYPICAL_CYCLE_LENGTH))
+
+
+def is_unusual_gap(gap_days: int) -> bool:
+    return gap_days is not None and gap_days >= UNUSUAL_GAP_DAYS
+
+
+def cycle_gaps_from_starts(starts):
+    """Return consecutive start-to-start gaps in days for sorted start dates."""
+    ordered = sorted(starts)
+    return [(ordered[i] - ordered[i - 1]).days for i in range(1, len(ordered))]
+
+
+def filter_typical_lengths(lengths):
+    return [
+        length
+        for length in lengths
+        if MIN_CYCLE_LENGTH <= length <= MAX_TYPICAL_CYCLE_LENGTH
+    ]
+
+
+def estimate_cycle_length(starts, default_cycle=28):
+    """
+    Estimate cycle length for predictions.
+
+    - Uses only typical gaps (21–45 days); unusual gaps are excluded as outliers.
+    - Prefers the median of the most recent typical gaps (more robust than mean).
+    - Falls back to the profile/default length when no typical gaps exist.
+    """
+    fallback = clamp_cycle_length(default_cycle)
+    ordered = sorted(starts) if starts else []
+    if len(ordered) < 2:
+        return fallback, {
+            "typical_cycles_used": 0,
+            "outlier_gaps_excluded": 0,
+            "raw_gaps": [],
+            "typical_gaps": [],
+        }
+
+    raw_gaps = cycle_gaps_from_starts(ordered)
+    typical = filter_typical_lengths(raw_gaps)
+    outliers = len(raw_gaps) - len(typical)
+
+    if not typical:
+        return fallback, {
+            "typical_cycles_used": 0,
+            "outlier_gaps_excluded": outliers,
+            "raw_gaps": raw_gaps,
+            "typical_gaps": [],
+        }
+
+    recent = typical[-RECENT_TYPICAL_WINDOW:]
+    estimated = int(round(median(recent)))
+    return clamp_cycle_length(estimated, fallback), {
+        "typical_cycles_used": len(recent),
+        "outlier_gaps_excluded": outliers,
+        "raw_gaps": raw_gaps,
+        "typical_gaps": typical,
+    }
+
+
+def find_unusual_gap_with_previous(starts, new_start):
+    """
+    If inserting/comparing new_start against existing starts creates an unusual
+    gap with the immediately previous start, return that context.
+    """
+    if not new_start:
+        return None
+
+    prior = [s for s in starts if s < new_start]
+    if not prior:
+        return None
+
+    previous = max(prior)
+    gap_days = (new_start - previous).days
+    if not is_unusual_gap(gap_days):
+        return None
+
+    return {
+        "previous_start": previous,
+        "new_start": new_start,
+        "gap_days": gap_days,
     }
 
 
@@ -53,7 +168,7 @@ def compute_phase_schedule(cycle_length: int, period_length: int) -> dict:
     - Ovulation: 3-day fertile window centred ~14 days before next period
     - Luteal: after ovulation until cycle end (PMS = last 7 days)
     """
-    cycle_length = max(int(cycle_length), 21)
+    cycle_length = clamp_cycle_length(cycle_length)
     period_length = min(max(int(period_length), 2), cycle_length - 10)
 
     ovulation_peak = cycle_length - LUTEAL_PHASE_DAYS
@@ -94,12 +209,14 @@ def _cycle_statistics(cycles, default_cycle, default_period):
             "longest_cycle": None,
             "shortest_cycle": None,
             "logged_cycles": 0,
+            "typical_cycles_used": 0,
+            "outlier_gaps_excluded": 0,
         }
 
-    starts = sorted(c.cycle_start_date for c in cycles)
-    cycle_lengths = []
-    if len(starts) >= 2:
-        cycle_lengths = [(starts[i] - starts[i - 1]).days for i in range(1, len(starts))]
+    starts = sorted(c.cycle_start_date for c in cycles if c.cycle_start_date)
+    estimated, meta = estimate_cycle_length(starts, default_cycle)
+    raw_gaps = meta["raw_gaps"]
+    typical_gaps = meta["typical_gaps"]
 
     period_lengths = [
         (c.cycle_end_date - c.cycle_start_date).days + 1
@@ -108,15 +225,18 @@ def _cycle_statistics(cycles, default_cycle, default_period):
     ]
 
     return {
-        "average_cycle_length": (
-            round(sum(cycle_lengths) / len(cycle_lengths)) if cycle_lengths else default_cycle
-        ),
+        "average_cycle_length": estimated,
         "average_period_length": (
             round(sum(period_lengths) / len(period_lengths)) if period_lengths else default_period
         ),
-        "longest_cycle": max(cycle_lengths) if cycle_lengths else None,
-        "shortest_cycle": min(cycle_lengths) if cycle_lengths else None,
+        # Keep raw extremes for awareness; prediction uses typical gaps only.
+        "longest_cycle": max(raw_gaps) if raw_gaps else None,
+        "shortest_cycle": min(raw_gaps) if raw_gaps else None,
+        "longest_typical_cycle": max(typical_gaps) if typical_gaps else None,
+        "shortest_typical_cycle": min(typical_gaps) if typical_gaps else None,
         "logged_cycles": len(cycles),
+        "typical_cycles_used": meta["typical_cycles_used"],
+        "outlier_gaps_excluded": meta["outlier_gaps_excluded"],
     }
 
 
@@ -159,6 +279,25 @@ def _date_for_cycle_day(cycle_start: date, day: int) -> date:
     return cycle_start + timedelta(days=day - 1)
 
 
+def _prediction_quality(stats, default_cycle):
+    typical_used = stats.get("typical_cycles_used") or 0
+    outliers = stats.get("outlier_gaps_excluded") or 0
+    if typical_used >= 3:
+        quality = "good"
+    elif typical_used >= 1:
+        quality = "fair"
+    else:
+        quality = "fallback"
+
+    return {
+        "quality": quality,
+        "typical_cycles_used": typical_used,
+        "outlier_gaps_excluded": outliers,
+        "using_profile_default": typical_used == 0,
+        "assumed_cycle_length": stats.get("average_cycle_length") or default_cycle,
+    }
+
+
 def compute_cycle_insights(user, reference_date=None):
     reference_date = reference_date or date.today()
     health = user.health_profile
@@ -170,15 +309,18 @@ def compute_cycle_insights(user, reference_date=None):
         last_start = health.last_period_start
 
     default_cycle = health.average_cycle_length if health and health.average_cycle_length else 28
+    default_cycle = clamp_cycle_length(default_cycle)
     default_period = health.average_period_length if health and health.average_period_length else 5
     stats = _cycle_statistics(cycles, default_cycle, default_period)
 
-    avg_cycle = stats["average_cycle_length"] or default_cycle
+    avg_cycle = clamp_cycle_length(stats["average_cycle_length"] or default_cycle, default_cycle)
     avg_period = stats["average_period_length"] or default_period
+    prediction_quality = _prediction_quality(stats, default_cycle)
 
     if not last_start:
         payload = _empty_insights()
         payload["statistics"] = stats
+        payload["prediction_quality"] = prediction_quality
         return payload
 
     current_start, next_period = _resolve_cycle_window(last_start, avg_cycle, reference_date)
@@ -230,5 +372,6 @@ def compute_cycle_insights(user, reference_date=None):
         "average_cycle_length": avg_cycle,
         "average_period_length": avg_period,
         "phase_ranges": schedule,
+        "prediction_quality": prediction_quality,
         "statistics": stats,
     }

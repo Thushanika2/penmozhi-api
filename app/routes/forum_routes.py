@@ -31,7 +31,7 @@ def update_forum_post(post_id):
 
 
 @forum_bp.route("/<int:post_id>", methods=["DELETE"])
-@jwt_required_user
+@roles_required("user", "admin")
 def delete_forum_post(post_id):
     return ctrl.delete_forum_post(post_id)
 
