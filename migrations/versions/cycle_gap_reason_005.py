@@ -15,12 +15,21 @@ branch_labels = None
 depends_on = None
 
 
+def _column_exists(table_name: str, column_name: str) -> bool:
+    inspector = sa.inspect(op.get_bind())
+    if table_name not in inspector.get_table_names():
+        return False
+    return column_name in {col["name"] for col in inspector.get_columns(table_name)}
+
+
 def upgrade():
-    op.add_column(
-        "cycle_history_logs",
-        sa.Column("gap_reason", sa.String(length=50), nullable=True),
-    )
+    if not _column_exists("cycle_history_logs", "gap_reason"):
+        op.add_column(
+            "cycle_history_logs",
+            sa.Column("gap_reason", sa.String(length=50), nullable=True),
+        )
 
 
 def downgrade():
-    op.drop_column("cycle_history_logs", "gap_reason")
+    if _column_exists("cycle_history_logs", "gap_reason"):
+        op.drop_column("cycle_history_logs", "gap_reason")

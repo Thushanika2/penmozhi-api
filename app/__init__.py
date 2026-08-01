@@ -53,40 +53,64 @@ def create_app():
 
     init_scheduler(app)
 
-    # @app.route("/", methods=["GET"])
-    # def api_home():
-    #     return jsonify({
-    #         "message": "Penmozhi Women's Health API",
-    #         "version": "1.0",
-    #         "endpoints": {
-    #             "auth": "/api/auth",
-    #             "health_profiles": "/api/health-profiles",
-    #             "cycles": "/api/cycles",
-    #             "symptoms": "/api/symptoms",
-    #             "reminders": "/api/reminders",
-    #             "ai_assistant": "/api/ai-assistant",
-    #             "pcos_status": "/api/pcos-status",
-    #             "education": "/api/education",
-    #             "forum": "/api/forum",
-    #             "admin": "/admin",
-    #         },
-    #     })
+    @app.route("/api/health", methods=["GET"])
+    def api_health():
+        from sqlalchemy import text
+
+        try:
+            db.session.execute(text("SELECT 1"))
+            return jsonify({"status": "ok", "database": "connected"}), 200
+        except Exception as exc:
+            return (
+                jsonify(
+                    {
+                        "status": "error",
+                        "database": "disconnected",
+                        "error": "Database connection failed.",
+                        "detail": str(exc.__class__.__name__),
+                    }
+                ),
+                503,
+            )
 
     @app.errorhandler(OperationalError)
     def handle_operational_error(err):
         db.session.rollback()
         orig = getattr(err, "orig", None)
         code = orig.args[0] if orig and orig.args else None
+        message = str(orig) if orig else str(err)
+
         if code == 1049:
-            return jsonify({"error": "Invalid database name configured."}), 500
+            return jsonify({"error": "Invalid database name configured.", "error_code": "db.invalid_name"}), 500
         if code in (2003, 2002):
-            return jsonify({"error": "MySQL server is not running or not reachable."}), 503
-        return jsonify({"error": "Database connection failed."}), 500
+            return jsonify({
+                "error": "MySQL server is not running or not reachable.",
+                "error_code": "db.unreachable",
+            }), 503
+        if code == 1045:
+            return jsonify({
+                "error": "Database authentication failed. Check Railway MySQL credentials.",
+                "error_code": "db.auth_failed",
+            }), 500
+        if code in (1054, 1146, 1050):
+            return jsonify({
+                "error": "Database schema is out of date. Redeploy the API so migrations can run.",
+                "error_code": "db.schema_mismatch",
+                "detail": message,
+            }), 500
+        return jsonify({
+            "error": "Database connection failed.",
+            "error_code": "db.connection_failed",
+            "detail": message,
+        }), 500
 
     @app.errorhandler(ProgrammingError)
     def handle_programming_error(err):
         db.session.rollback()
-        return jsonify({"error": "Invalid database name configured."}), 500
+        return jsonify({
+            "error": "Database schema error. Redeploy the API so migrations can run.",
+            "error_code": "db.schema_error",
+        }), 500
 
     @app.errorhandler(500)
     def handle_internal_error(err):

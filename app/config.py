@@ -1,7 +1,7 @@
 from datetime import timedelta
 import os
 import re
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse, urlunparse, parse_qsl, urlencode
 
 from dotenv import load_dotenv
 
@@ -34,6 +34,18 @@ def _fix_double_port_url(url):
     return re.sub(r"(@[^/@]+:\d+):(\d+)(?=/|$)", r"\1", url, count=1)
 
 
+def _ensure_pymysql_charset(url):
+    """Ensure utf8mb4 charset is set for MySQL URLs."""
+    if not url or "charset=" in url:
+        return url
+    if "mysql" not in url.split("://", 1)[0]:
+        return url
+    parsed = urlparse(url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query.setdefault("charset", "utf8mb4")
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
 def _normalize_database_url(url):
     if not url:
         return None
@@ -44,18 +56,21 @@ def _normalize_database_url(url):
     elif url.startswith("mysql2://"):
         url = url.replace("mysql2://", "mysql+pymysql://", 1)
 
-    return url
+    return _ensure_pymysql_charset(url)
 
 
-def _build_database_uri():
-    database_url = (
-        os.getenv("DATABASE_URL")
-        or os.getenv("MYSQL_URL")
-        or os.getenv("MYSQL_PUBLIC_URL")
+def _is_private_mysql_host(host: str | None) -> bool:
+    if not host:
+        return False
+    hostname = host.strip().lower().split(":")[0]
+    return (
+        hostname.endswith(".railway.internal")
+        or hostname.endswith(".rlwy.internal")
+        or hostname in {"mysql", "mysql.railway.internal"}
     )
-    if database_url:
-        return _normalize_database_url(database_url)
 
+
+def _from_discrete_vars():
     db_user = os.getenv("DB_USER") or os.getenv("MYSQLUSER")
     db_password = os.getenv("DB_PASSWORD") or os.getenv("MYSQLPASSWORD")
     db_host = os.getenv("DB_HOST") or os.getenv("MYSQLHOST")
@@ -66,11 +81,44 @@ def _build_database_uri():
         return None
 
     hostname, port = _split_host_port(db_host, db_port)
-
-    return (
+    return _ensure_pymysql_charset(
         f"mysql+pymysql://{quote_plus(db_user)}:{quote_plus(db_password)}"
         f"@{hostname}:{port}/{db_name}"
     )
+
+
+def _build_database_uri():
+    """
+    Build SQLAlchemy URI with Railway-safe preference order:
+    1. Private discrete MYSQL* / DB_* vars when on Railway (internal network)
+    2. DATABASE_URL / MYSQL_URL
+    3. Remaining discrete vars
+    4. MYSQL_PUBLIC_URL (TCP proxy — last resort)
+    """
+    on_railway = bool(
+        os.getenv("RAILWAY_ENVIRONMENT")
+        or os.getenv("RAILWAY_SERVICE_NAME")
+        or os.getenv("RAILWAY_PROJECT_ID")
+    )
+    discrete = _from_discrete_vars()
+    host = os.getenv("DB_HOST") or os.getenv("MYSQLHOST")
+
+    if on_railway and discrete and _is_private_mysql_host(host):
+        return discrete
+
+    for key in ("DATABASE_URL", "MYSQL_URL"):
+        value = os.getenv(key)
+        if value:
+            return _normalize_database_url(value)
+
+    if discrete:
+        return discrete
+
+    public_url = os.getenv("MYSQL_PUBLIC_URL")
+    if public_url:
+        return _normalize_database_url(public_url)
+
+    return None
 
 
 class Config:
@@ -85,11 +133,13 @@ class Config:
     SQLALCHEMY_ENGINE_OPTIONS = {
         "pool_pre_ping": True,
         "pool_recycle": 280,
+        "pool_size": 5,
+        "max_overflow": 10,
     }
 
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "super-secret-key-change-me")
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(
-        days=int(os.getenv("JWT_ACCESS_TOKEN_EXPIRES_MINUTES", "21"))
+        minutes=int(os.getenv("JWT_ACCESS_TOKEN_EXPIRES_MINUTES", "1440"))
     )
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(
         days=int(os.getenv("JWT_REFRESH_TOKEN_EXPIRES_DAYS", "30"))
