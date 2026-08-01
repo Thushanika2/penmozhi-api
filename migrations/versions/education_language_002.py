@@ -16,10 +16,14 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column(
-        "educational_resources",
-        sa.Column("language", sa.String(20), nullable=False, server_default="english"),
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {col["name"] for col in inspector.get_columns("educational_resources")} if "educational_resources" in inspector.get_table_names() else set()
+    if "language" not in columns:
+        op.add_column(
+            "educational_resources",
+            sa.Column("language", sa.String(20), nullable=False, server_default="english"),
+        )
 
 
 def downgrade():
