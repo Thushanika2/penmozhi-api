@@ -1,6 +1,10 @@
 from datetime import date, timedelta
 
-from app.services.cycle_prediction_service import compute_phase_schedule
+from app.services.cycle_prediction_service import (
+    clamp_cycle_length,
+    compute_phase_schedule,
+    estimate_cycle_length,
+)
 
 
 def _period_start_dates(user):
@@ -25,6 +29,7 @@ def compute_conceive_insights(user, reference_date=None):
 
     health = user.health_profile
     default_cycle = health.average_cycle_length if health and health.average_cycle_length else 28
+    default_cycle = clamp_cycle_length(default_cycle)
     default_period = health.average_period_length if health and health.average_period_length else 5
 
     if not starts:
@@ -38,10 +43,7 @@ def compute_conceive_insights(user, reference_date=None):
         }
 
     last_start = max(starts)
-    avg_cycle = default_cycle
-    if len(starts) >= 2:
-        lengths = [(starts[i] - starts[i - 1]).days for i in range(1, len(starts))]
-        avg_cycle = round(sum(lengths) / len(lengths))
+    avg_cycle, _meta = estimate_cycle_length(starts, default_cycle)
 
     schedule = compute_phase_schedule(avg_cycle, default_period)
     ovulation_peak_day = schedule["ovulation_peak_day"]
