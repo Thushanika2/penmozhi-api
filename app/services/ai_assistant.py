@@ -10,7 +10,9 @@ from app.services.cycle_prediction_service import compute_cycle_insights
 
 logger = logging.getLogger(__name__)
 
-MAX_OUTPUT_TOKENS = 1024
+MAX_OUTPUT_TOKENS = 2048
+# Keep Gemini thinking small so thoughts do not consume the output budget.
+GEMINI_THINKING_BUDGET = 256
 CONVERSATION_HISTORY_LIMIT = 10
 
 SYSTEM_PROMPT = (
@@ -28,7 +30,10 @@ SYSTEM_PROMPT = (
     "Answer ONLY using facts from the internal reference data and the user's question. "
     "Never fabricate medical claims, lab results, or diagnoses. "
     "Always recommend consulting a qualified clinician for diagnosis or treatment. "
-    "Keep every full answer to 3-5 short sentences maximum. "
+    "Keep every full answer concise: usually 3-5 short sentences. "
+    "Cover only what the user asked — do not pack extra background, long hormone "
+    "lectures, or unrelated tips into the same reply. "
+    "Always finish with a complete sentence and clear ending punctuation; never stop mid-word. "
     "When prior conversation turns are provided, treat follow-up questions in context "
     "of what was already discussed — do not ask the user to repeat themselves. "
     "Never use markdown formatting (no **, no #, no bullet points with - or *). "
