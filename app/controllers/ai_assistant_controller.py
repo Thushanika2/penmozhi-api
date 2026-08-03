@@ -18,7 +18,7 @@ from app.services.ai_assistant_chat_store import (
 )
 from app.services.pcos_pattern_service import detect_pcos_patterns
 from app.services.ai_assistant_llm_service import (
-    fallback_assistant_payload,
+    AssistantLLMUnavailable,
     generate_assistant_reply,
 )
 
@@ -121,17 +121,24 @@ def chat():
             else []
         )
 
-        llm_payload = generate_assistant_reply(
-            message,
-            user_context,
-            history_messages=history_messages,
-        )
-        if llm_payload:
-            payload = llm_payload
-            recommendations = _build_recommendations(message, symptoms)
-        else:
-            recommendations = _build_recommendations(message, symptoms)
-            payload = fallback_assistant_payload(" ".join(recommendations))
+        try:
+            payload = generate_assistant_reply(
+                message,
+                user_context,
+                history_messages=history_messages,
+            )
+        except AssistantLLMUnavailable as exc:
+            logger.error(
+                "AI assistant LLM unavailable code=%s status=%s message=%s",
+                exc.code,
+                exc.status,
+                exc.message,
+            )
+            # Never substitute rule-based recommendations into the chat reply.
+            return error_response(exc.code, exc.message, exc.status)
+
+        # Sidebar tips only — independent of the chat reply text.
+        recommendations = _build_recommendations(message, symptoms)
 
         reply = payload["text"]
         response_type = payload.get("response_type") or "answer"

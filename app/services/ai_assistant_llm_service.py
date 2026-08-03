@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 
 from flask import current_app
 
@@ -15,6 +16,36 @@ from app.services.ai_assistant import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Prefer flash-lite aliases — full flash free-tier caps are often exhausted first.
+DEFAULT_GEMINI_FALLBACK_MODELS = (
+    "gemini-flash-lite-latest",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-2.0-flash",
+)
+
+
+class AssistantLLMUnavailable(Exception):
+    """Raised when no LLM provider can produce a chat reply."""
+
+    def __init__(self, code: str, message: str, status: int = 503):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.status = status
+
+
+@dataclass
+class _GeminiAttempt:
+    model: str
+    status_code: int | None = None
+    raw_body: str | None = None
+    exception_caught: bool = False
+    exception_type: str | None = None
+    finish_reason: str | None = None
+    raw_text: str | None = None
+    payload: dict | None = None
 
 
 def _finish_reason_name(finish_reason) -> str:
@@ -111,6 +142,65 @@ def _to_gemini_content(raw_contents: list[dict]):
     return contents
 
 
+def _client_error_details(exc) -> tuple[int | None, str]:
+    status = getattr(exc, "code", None)
+    if not isinstance(status, int):
+        status = getattr(exc, "status_code", None)
+    body = getattr(exc, "details", None)
+    if body is None:
+        body = getattr(exc, "message", None) or str(exc)
+    if not isinstance(body, str):
+        try:
+            import json
+
+            body = json.dumps(body, default=str)
+        except Exception:
+            body = str(body)
+    return status if isinstance(status, int) else None, body
+
+
+def _is_quota_error(exc) -> bool:
+    status, body = _client_error_details(exc)
+    text = (body or "").upper()
+    return status == 429 or "RESOURCE_EXHAUSTED" in text or "QUOTA" in text
+
+
+def _is_thinking_config_error(exc) -> bool:
+    """True when the model rejected thinking_config (not quota/auth failures)."""
+    if _is_quota_error(exc):
+        return False
+    status, body = _client_error_details(exc)
+    text = (body or "").lower()
+    if status in {401, 403, 404}:
+        return False
+    return any(
+        token in text
+        for token in (
+            "thinking",
+            "thinking_config",
+            "thinking_budget",
+            "thinking_level",
+            "invalid argument",
+            "unsupported",
+        )
+    )
+
+
+def _log_gemini_attempt(attempt: _GeminiAttempt) -> None:
+    logger.info(
+        "GEMINI_DIAGNOSTIC model=%s http_status=%s exception_caught=%s "
+        "exception_type=%s finish_reason=%s raw_body=%s raw_text=%s payload=%s",
+        attempt.model,
+        attempt.status_code,
+        attempt.exception_caught,
+        attempt.exception_type,
+        attempt.finish_reason,
+        (attempt.raw_body or "")[:4000],
+        (attempt.raw_text or "")[:2000],
+        attempt.payload,
+    )
+
+
 def _generate_with_gemini(
     client,
     model: str,
@@ -139,26 +229,24 @@ def _generate_with_gemini(
     )
 
 
-def _call_gemini(
-    message: str,
-    user_context: str | None,
-    history_messages: list[dict[str, str]] | None = None,
-) -> dict | None:
-    api_key = current_app.config.get("GEMINI_API_KEY")
-    if not api_key:
-        return None
+def _gemini_models_to_try(primary: str) -> list[str]:
+    models = [primary]
+    for model in DEFAULT_GEMINI_FALLBACK_MODELS:
+        if model not in models:
+            models.append(model)
+    return models
 
+
+def _call_gemini_once(
+    client,
+    model: str,
+    contents,
+    system_instruction: str,
+) -> _GeminiAttempt:
+    from google.genai.errors import ClientError
+
+    attempt = _GeminiAttempt(model=model)
     try:
-        from google import genai
-        from google.genai.errors import ClientError
-
-        # 60s gives thinking models room without leaving the client hanging forever.
-        client = genai.Client(api_key=api_key, http_options={"timeout": 60_000})
-        model = current_app.config.get("GEMINI_MODEL", "gemini-flash-latest")
-        raw_contents = build_gemini_contents(history_messages or [], message)
-        contents = _to_gemini_content(raw_contents)
-        system_instruction = build_system_instruction(user_context)
-
         try:
             response = _generate_with_gemini(
                 client,
@@ -168,9 +256,25 @@ def _call_gemini(
                 use_thinking=True,
             )
         except ClientError as exc:
-            # Some models reject thinking_level / thinking_budget values.
+            status, body = _client_error_details(exc)
+            attempt.status_code = status
+            attempt.raw_body = body
+            if _is_quota_error(exc):
+                attempt.exception_caught = True
+                attempt.exception_type = type(exc).__name__
+                logger.error(
+                    "Gemini quota/rate-limit for model=%s status=%s body=%s",
+                    model,
+                    status,
+                    body,
+                )
+                _log_gemini_attempt(attempt)
+                return attempt
+            if not _is_thinking_config_error(exc):
+                raise
             logger.warning(
-                "Gemini rejected thinking_config (%s); retrying without it.",
+                "Gemini rejected thinking_config for model=%s (%s); retrying without it.",
+                model,
                 exc,
             )
             response = _generate_with_gemini(
@@ -181,11 +285,14 @@ def _call_gemini(
                 use_thinking=False,
             )
 
-        reason_name = _log_gemini_finish_reason(response)
-        payload = _finalize_payload_from_raw(_extract_candidate_text(response))
+        attempt.status_code = 200
+        attempt.finish_reason = _log_gemini_finish_reason(response)
+        attempt.raw_text = _extract_candidate_text(response)
+        attempt.raw_body = attempt.raw_text
+        attempt.payload = _finalize_payload_from_raw(attempt.raw_text)
 
         # If thinking still consumed the shared token budget, retry once with more headroom.
-        if reason_name == "MAX_TOKENS":
+        if attempt.finish_reason == "MAX_TOKENS":
             logger.warning(
                 "Retrying Gemini once after MAX_TOKENS with max_output_tokens=%s.",
                 MAX_OUTPUT_TOKENS * 2,
@@ -199,43 +306,151 @@ def _call_gemini(
                     use_thinking=True,
                     max_output_tokens=MAX_OUTPUT_TOKENS * 2,
                 )
-            except ClientError:
-                response = _generate_with_gemini(
-                    client,
-                    model,
-                    contents,
-                    system_instruction,
-                    use_thinking=False,
-                    max_output_tokens=MAX_OUTPUT_TOKENS * 2,
-                )
-            reason_name = _log_gemini_finish_reason(response)
-            retry_payload = _finalize_payload_from_raw(_extract_candidate_text(response))
+            except ClientError as exc:
+                if _is_thinking_config_error(exc):
+                    response = _generate_with_gemini(
+                        client,
+                        model,
+                        contents,
+                        system_instruction,
+                        use_thinking=False,
+                        max_output_tokens=MAX_OUTPUT_TOKENS * 2,
+                    )
+                else:
+                    raise
+            attempt.finish_reason = _log_gemini_finish_reason(response)
+            attempt.raw_text = _extract_candidate_text(response)
+            attempt.raw_body = attempt.raw_text
+            retry_payload = _finalize_payload_from_raw(attempt.raw_text)
             if retry_payload:
-                payload = retry_payload
-            if reason_name == "MAX_TOKENS":
+                attempt.payload = retry_payload
+            if attempt.finish_reason == "MAX_TOKENS":
                 logger.error(
                     "Gemini reply still truncated after retry (finish_reason=MAX_TOKENS)."
                 )
 
-        return payload
+        _log_gemini_attempt(attempt)
+        return attempt
+    except Exception as exc:
+        status, body = _client_error_details(exc)
+        attempt.status_code = status
+        attempt.raw_body = body
+        attempt.exception_caught = True
+        attempt.exception_type = type(exc).__name__
+        if status in {404, 400, 401, 403}:
+            logger.error(
+                "Gemini call failed for model=%s status=%s body=%s",
+                model,
+                status,
+                body,
+            )
+        else:
+            logger.exception(
+                "Gemini call failed for model=%s status=%s body=%s",
+                model,
+                status,
+                body,
+            )
+        _log_gemini_attempt(attempt)
+        return attempt
+
+
+def _call_gemini(
+    message: str,
+    user_context: str | None,
+    history_messages: list[dict[str, str]] | None = None,
+) -> tuple[dict | None, AssistantLLMUnavailable | None]:
+    api_key = current_app.config.get("GEMINI_API_KEY")
+    if not api_key:
+        logger.error("GEMINI_API_KEY is not configured.")
+        return None, AssistantLLMUnavailable(
+            "ai.not_configured",
+            "The AI assistant is not configured. Please try again later.",
+            503,
+        )
+
+    try:
+        from google import genai
     except ImportError:
         logger.error(
             "google-genai is not installed. Run: pip install -r requirements.txt"
         )
-        return None
-    except Exception:
-        logger.exception("Gemini call failed.")
-        return None
+        return None, AssistantLLMUnavailable(
+            "ai.service_unavailable",
+            "Something went wrong with the AI assistant. Please try again.",
+            503,
+        )
+
+    # 60s gives thinking models room without leaving the client hanging forever.
+    client = genai.Client(api_key=api_key, http_options={"timeout": 60_000})
+    primary = current_app.config.get("GEMINI_MODEL", "gemini-2.0-flash")
+    raw_contents = build_gemini_contents(history_messages or [], message)
+    contents = _to_gemini_content(raw_contents)
+    system_instruction = build_system_instruction(user_context)
+
+    last_error: AssistantLLMUnavailable | None = None
+    saw_quota = False
+    for model in _gemini_models_to_try(primary):
+        attempt = _call_gemini_once(client, model, contents, system_instruction)
+        if attempt.payload and attempt.payload.get("text"):
+            return attempt.payload, None
+
+        if attempt.status_code == 429 or (
+            attempt.raw_body and "RESOURCE_EXHAUSTED" in (attempt.raw_body or "").upper()
+        ):
+            saw_quota = True
+            last_error = AssistantLLMUnavailable(
+                "ai.quota_exceeded",
+                "The AI assistant is temporarily rate-limited. Please try again in a minute.",
+                503,
+            )
+            # Try the next model — free-tier quotas are often per-model.
+            continue
+
+        if attempt.exception_caught:
+            # Prefer an earlier quota error over a later model-not-found/etc.
+            if not saw_quota:
+                last_error = AssistantLLMUnavailable(
+                    "ai.service_unavailable",
+                    "Something went wrong with the AI assistant. Please try again.",
+                    503,
+                )
+            continue
+
+        # Successful HTTP but empty/unusable payload
+        if not saw_quota:
+            last_error = AssistantLLMUnavailable(
+                "ai.service_unavailable",
+                "Something went wrong with the AI assistant. Please try again.",
+                503,
+            )
+
+    if saw_quota:
+        return None, AssistantLLMUnavailable(
+            "ai.quota_exceeded",
+            "The AI assistant is temporarily rate-limited. Please try again in a minute.",
+            503,
+        )
+
+    return None, last_error or AssistantLLMUnavailable(
+        "ai.service_unavailable",
+        "Something went wrong with the AI assistant. Please try again.",
+        503,
+    )
 
 
 def _call_anthropic(
     message: str,
     user_context: str | None,
     history_messages: list[dict[str, str]] | None = None,
-) -> dict | None:
+) -> tuple[dict | None, AssistantLLMUnavailable | None]:
     api_key = current_app.config.get("ANTHROPIC_API_KEY")
     if not api_key:
-        return None
+        return None, AssistantLLMUnavailable(
+            "ai.not_configured",
+            "The AI assistant is not configured. Please try again later.",
+            503,
+        )
 
     try:
         import anthropic
@@ -258,10 +473,21 @@ def _call_anthropic(
         )
         text_blocks = [block.text for block in response.content if hasattr(block, "text")]
         raw = "\n".join(text_blocks).strip()
-        return _finalize_payload_from_raw(raw)
+        payload = _finalize_payload_from_raw(raw)
+        if payload and payload.get("text"):
+            return payload, None
+        return None, AssistantLLMUnavailable(
+            "ai.service_unavailable",
+            "Something went wrong with the AI assistant. Please try again.",
+            503,
+        )
     except Exception:
         logger.exception("Anthropic call failed.")
-        return None
+        return None, AssistantLLMUnavailable(
+            "ai.service_unavailable",
+            "Something went wrong with the AI assistant. Please try again.",
+            503,
+        )
 
 
 def _provider_order() -> list[str]:
@@ -294,18 +520,30 @@ def generate_assistant_reply(
     message: str,
     user_context: str | None = None,
     history_messages: list[dict[str, str]] | None = None,
-) -> dict | None:
+) -> dict:
     """
     Return a structured assistant payload:
     {response_type: "answer"|"clarify", text: str, options: list[str]}
+
+    Raises AssistantLLMUnavailable when no provider can produce a reply.
     """
     callers = {
         "gemini": _call_gemini,
         "anthropic": _call_anthropic,
     }
 
-    for provider in _provider_order():
-        payload = callers[provider](message, user_context, history_messages)
+    providers = _provider_order()
+    if not providers:
+        logger.error("No AI provider configured (missing GEMINI_API_KEY / ANTHROPIC_API_KEY).")
+        raise AssistantLLMUnavailable(
+            "ai.not_configured",
+            "The AI assistant is not configured. Please try again later.",
+            503,
+        )
+
+    last_error: AssistantLLMUnavailable | None = None
+    for provider in providers:
+        payload, error = callers[provider](message, user_context, history_messages)
         if payload and payload.get("text"):
             logger.info(
                 "AI assistant reply generated via %s "
@@ -317,11 +555,17 @@ def generate_assistant_reply(
                 CONVERSATION_HISTORY_LIMIT,
             )
             return payload
+        last_error = error
 
-    return None
+    raise last_error or AssistantLLMUnavailable(
+        "ai.service_unavailable",
+        "Something went wrong with the AI assistant. Please try again.",
+        503,
+    )
 
 
 def fallback_assistant_payload(text: str) -> dict:
+    """Kept for tests/tools — must NOT be used as a silent chat substitute."""
     return normalize_assistant_payload(
         {"response_type": "answer", "text": sanitize_assistant_reply(text)}
     )
