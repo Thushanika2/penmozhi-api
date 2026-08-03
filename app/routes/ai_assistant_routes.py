@@ -28,3 +28,9 @@ def get_chat_history():
 @roles_required("user")
 def get_sessions():
     return ctrl.get_sessions()
+
+
+@ai_assistant_bp.route("/chats", methods=["GET"])
+@roles_required("user")
+def get_chats():
+    return ctrl.get_chats()
