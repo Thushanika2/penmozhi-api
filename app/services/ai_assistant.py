@@ -1,4 +1,5 @@
 import logging
+import json
 import re
 from datetime import date, datetime, timedelta
 
@@ -14,6 +15,7 @@ MAX_OUTPUT_TOKENS = 2048
 # Keep Gemini thinking small so thoughts do not consume the output budget.
 GEMINI_THINKING_BUDGET = 256
 CONVERSATION_HISTORY_LIMIT = 10
+MAX_CLARIFY_OPTIONS = 4
 
 SYSTEM_PROMPT = (
     "You are a knowledgeable, warm women's health expert for the Penmozhi app. "
@@ -39,28 +41,37 @@ SYSTEM_PROMPT = (
     "Never use markdown formatting (no **, no #, no bullet points with - or *). "
     "Write in plain conversational sentences only, since the output is displayed as plain text. "
     "If the reference data lacks information to answer, say so clearly. "
+    "OUTPUT FORMAT: Always respond as JSON matching this schema only: "
+    '{"response_type":"answer"|"clarify","text":"...","options":["..."]}. '
+    "Use response_type \"answer\" for a normal reply; set text to the full answer and "
+    "omit options or use an empty array. "
     "CLARIFYING QUESTIONS: Before giving a full answer, check whether you have enough "
     "information to give a genuinely useful, specific response. If the question is ambiguous, "
     "vague, or missing a detail that would meaningfully change your answer, ask ONE short, "
-    "specific follow-up question instead of answering generically. "
+    "specific follow-up with response_type \"clarify\". Put the clarifying question in text. "
+    "When the possible answers are enumerable (pain location, severity, yes/no-style "
+    "distinctions, common causes), also provide 2-4 short mutually exclusive options "
+    "(each under about 4 words) that the user can tap — e.g. text \"வலி எங்க வருது?\" "
+    "with options [\"கீழ் வயிறு\", \"மேல் வயிறு\", \"இடுப்பு பகுதி\"]. "
+    "If the clarifying detail cannot be reduced to short choices (e.g. exact days late), "
+    "use response_type \"clarify\" with an empty options array so the user can type freely. "
     "Examples of when to ask a follow-up: "
-    "'period late aachu' — ask how many days late and whether anything unusual happened recently "
-    "(stress, weight change, missed contraception, travel), not a generic list of late-period causes; "
-    "'vayitru vali irukku' — ask where exactly, how severe, and whether it matches their usual cramps "
-    "or feels different this time; "
-    "'enakku PCOS irukka' — ask what symptoms they are noticing, not a generic PCOS symptom list. "
-    "Examples of when NOT to ask a follow-up (answer directly): "
+    "'period late aachu' — clarify how many days late or whether anything unusual happened "
+    "(stress, weight change, missed contraception, travel), not a generic late-period lecture; "
+    "'vayitru vali irukku' — clarify location/severity with tappable options when possible; "
+    "'enakku PCOS irukka' — clarify which symptoms they notice, not a generic PCOS list. "
+    "Examples of when NOT to ask a follow-up (answer directly with response_type \"answer\"): "
     "the question is already specific and self-contained (e.g. 'average cycle length enna', "
     "'ovulation na enna'); the user already gave enough context in this message or earlier in "
     "the conversation; it is a general educational question with one clear factual answer. "
-    "Rules for the follow-up question itself: ask only ONE question at a time, not a list; "
-    "keep it short and conversational, not clinical or interrogative; one or two sentences is enough; "
-    "never ask more than one clarifying round in a row — if your last reply was already a "
-    "clarifying question and the user's next message still does not fully clarify, give your "
-    "best answer with the information available rather than asking again; "
+    "Rules for clarifying turns: ask only ONE clarifying question at a time; "
+    "keep text short and conversational; never ask more than one clarifying round in a row — "
+    "if your last reply was already a clarifying question and the user's next message still "
+    "does not fully clarify, give your best answer with response_type \"answer\"; "
     "if the user seems distressed, in pain, or describes something urgent (heavy bleeding, "
     "severe pain, signs of a medical emergency), do NOT delay with a clarifying question — "
-    "respond directly and recommend seeing a doctor or emergency care promptly."
+    "respond directly with response_type \"answer\" and recommend seeing a doctor or "
+    "emergency care promptly."
 )
 
 _CONTEXT_PREAMBLE = (
@@ -148,6 +159,75 @@ def sanitize_assistant_reply(text: str) -> str:
     cleaned = cleaned.replace("*", "").replace("_", "")
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
+
+
+def normalize_assistant_payload(payload: dict | None, *, fallback_text: str | None = None) -> dict:
+    """Normalize model output into {response_type, text, options}."""
+    raw = payload if isinstance(payload, dict) else {}
+    text = sanitize_assistant_reply(str(raw.get("text") or fallback_text or ""))
+    response_type = str(raw.get("response_type") or "answer").strip().lower()
+    if response_type not in {"answer", "clarify"}:
+        response_type = "answer"
+
+    options: list[str] = []
+    raw_options = raw.get("options")
+    if isinstance(raw_options, list) and response_type == "clarify":
+        for item in raw_options:
+            label = sanitize_assistant_reply(str(item or "").strip())
+            if label and label not in options:
+                options.append(label)
+            if len(options) >= MAX_CLARIFY_OPTIONS:
+                break
+
+    if response_type == "clarify" and not text:
+        response_type = "answer"
+
+    return {
+        "response_type": response_type,
+        "text": text,
+        "options": options if response_type == "clarify" else [],
+    }
+
+
+def parse_structured_assistant_response(raw_text: str | None) -> dict:
+    """Parse Gemini JSON (or plain text fallback) into a normalized assistant payload."""
+    if not raw_text or not str(raw_text).strip():
+        return normalize_assistant_payload({"response_type": "answer", "text": ""})
+
+    text = str(raw_text).strip()
+    # Strip accidental markdown fences if the model ignores JSON mime mode.
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text)
+
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return normalize_assistant_payload(parsed)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+
+    return normalize_assistant_payload({"response_type": "answer", "text": text})
+
+
+def gemini_response_schema(types):
+    """Schema for Gemini JSON mode structured chat replies."""
+    return types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "response_type": types.Schema(
+                type=types.Type.STRING,
+                enum=["answer", "clarify"],
+            ),
+            "text": types.Schema(type=types.Type.STRING),
+            "options": types.Schema(
+                type=types.Type.ARRAY,
+                items=types.Schema(type=types.Type.STRING),
+                max_items=MAX_CLARIFY_OPTIONS,
+            ),
+        },
+        required=["response_type", "text"],
+    )
 
 
 def _format_phase(phase: str | None) -> str | None:

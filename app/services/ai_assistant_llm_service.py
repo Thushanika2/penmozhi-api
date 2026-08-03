@@ -8,6 +8,9 @@ from app.services.ai_assistant import (
     MAX_OUTPUT_TOKENS,
     build_gemini_contents,
     build_system_instruction,
+    gemini_response_schema,
+    normalize_assistant_payload,
+    parse_structured_assistant_response,
     sanitize_assistant_reply,
 )
 
@@ -90,11 +93,11 @@ def _build_thinking_config(types):
     return types.ThinkingConfig(thinking_budget=GEMINI_THINKING_BUDGET)
 
 
-def _finalize_reply(text: str | None) -> str | None:
-    if not text:
+def _finalize_payload_from_raw(raw_text: str | None) -> dict | None:
+    payload = parse_structured_assistant_response(raw_text)
+    if not payload.get("text"):
         return None
-    cleaned = sanitize_assistant_reply(text)
-    return cleaned or None
+    return payload
 
 
 def _to_gemini_content(raw_contents: list[dict]):
@@ -108,13 +111,23 @@ def _to_gemini_content(raw_contents: list[dict]):
     return contents
 
 
-def _generate_with_gemini(client, model: str, contents, system_instruction: str, *, use_thinking: bool):
+def _generate_with_gemini(
+    client,
+    model: str,
+    contents,
+    system_instruction: str,
+    *,
+    use_thinking: bool,
+    max_output_tokens: int | None = None,
+):
     from google.genai import types
 
     config_kwargs = {
         "system_instruction": system_instruction,
-        "max_output_tokens": MAX_OUTPUT_TOKENS,
+        "max_output_tokens": max_output_tokens or MAX_OUTPUT_TOKENS,
         "temperature": 0.4,
+        "response_mime_type": "application/json",
+        "response_schema": gemini_response_schema(types),
     }
     if use_thinking:
         config_kwargs["thinking_config"] = _build_thinking_config(types)
@@ -130,7 +143,7 @@ def _call_gemini(
     message: str,
     user_context: str | None,
     history_messages: list[dict[str, str]] | None = None,
-) -> str | None:
+) -> dict | None:
     api_key = current_app.config.get("GEMINI_API_KEY")
     if not api_key:
         return None
@@ -169,7 +182,7 @@ def _call_gemini(
             )
 
         reason_name = _log_gemini_finish_reason(response)
-        reply = _finalize_reply(_extract_candidate_text(response))
+        payload = _finalize_payload_from_raw(_extract_candidate_text(response))
 
         # If thinking still consumed the shared token budget, retry once with more headroom.
         if reason_name == "MAX_TOKENS":
@@ -177,40 +190,34 @@ def _call_gemini(
                 "Retrying Gemini once after MAX_TOKENS with max_output_tokens=%s.",
                 MAX_OUTPUT_TOKENS * 2,
             )
-            from google.genai import types
-
-            retry_kwargs = {
-                "system_instruction": system_instruction,
-                "max_output_tokens": MAX_OUTPUT_TOKENS * 2,
-                "temperature": 0.4,
-            }
             try:
-                retry_kwargs["thinking_config"] = _build_thinking_config(types)
-                response = client.models.generate_content(
-                    model=model,
-                    contents=contents,
-                    config=types.GenerateContentConfig(**retry_kwargs),
+                response = _generate_with_gemini(
+                    client,
+                    model,
+                    contents,
+                    system_instruction,
+                    use_thinking=True,
+                    max_output_tokens=MAX_OUTPUT_TOKENS * 2,
                 )
             except ClientError:
-                response = client.models.generate_content(
-                    model=model,
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_instruction,
-                        max_output_tokens=MAX_OUTPUT_TOKENS * 2,
-                        temperature=0.4,
-                    ),
+                response = _generate_with_gemini(
+                    client,
+                    model,
+                    contents,
+                    system_instruction,
+                    use_thinking=False,
+                    max_output_tokens=MAX_OUTPUT_TOKENS * 2,
                 )
             reason_name = _log_gemini_finish_reason(response)
-            retry_reply = _finalize_reply(_extract_candidate_text(response))
-            if retry_reply:
-                reply = retry_reply
+            retry_payload = _finalize_payload_from_raw(_extract_candidate_text(response))
+            if retry_payload:
+                payload = retry_payload
             if reason_name == "MAX_TOKENS":
                 logger.error(
                     "Gemini reply still truncated after retry (finish_reason=MAX_TOKENS)."
                 )
 
-        return reply
+        return payload
     except ImportError:
         logger.error(
             "google-genai is not installed. Run: pip install -r requirements.txt"
@@ -225,7 +232,7 @@ def _call_anthropic(
     message: str,
     user_context: str | None,
     history_messages: list[dict[str, str]] | None = None,
-) -> str | None:
+) -> dict | None:
     api_key = current_app.config.get("ANTHROPIC_API_KEY")
     if not api_key:
         return None
@@ -250,7 +257,8 @@ def _call_anthropic(
             messages=messages,
         )
         text_blocks = [block.text for block in response.content if hasattr(block, "text")]
-        return _finalize_reply("\n".join(text_blocks).strip())
+        raw = "\n".join(text_blocks).strip()
+        return _finalize_payload_from_raw(raw)
     except Exception:
         logger.exception("Anthropic call failed.")
         return None
@@ -286,21 +294,34 @@ def generate_assistant_reply(
     message: str,
     user_context: str | None = None,
     history_messages: list[dict[str, str]] | None = None,
-) -> str | None:
+) -> dict | None:
+    """
+    Return a structured assistant payload:
+    {response_type: "answer"|"clarify", text: str, options: list[str]}
+    """
     callers = {
         "gemini": _call_gemini,
         "anthropic": _call_anthropic,
     }
 
     for provider in _provider_order():
-        reply = callers[provider](message, user_context, history_messages)
-        if reply:
+        payload = callers[provider](message, user_context, history_messages)
+        if payload and payload.get("text"):
             logger.info(
-                "AI assistant reply generated via %s (%s prior turns, history_limit=%s).",
+                "AI assistant reply generated via %s "
+                "(type=%s options=%s prior_turns=%s history_limit=%s).",
                 provider,
+                payload.get("response_type"),
+                len(payload.get("options") or []),
                 len(history_messages or []),
                 CONVERSATION_HISTORY_LIMIT,
             )
-            return reply
+            return payload
 
     return None
+
+
+def fallback_assistant_payload(text: str) -> dict:
+    return normalize_assistant_payload(
+        {"response_type": "answer", "text": sanitize_assistant_reply(text)}
+    )

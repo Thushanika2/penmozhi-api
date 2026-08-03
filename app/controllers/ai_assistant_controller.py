@@ -17,7 +17,10 @@ from app.services.ai_assistant_chat_store import (
     session_preview,
 )
 from app.services.pcos_pattern_service import detect_pcos_patterns
-from app.services.ai_assistant_llm_service import generate_assistant_reply
+from app.services.ai_assistant_llm_service import (
+    fallback_assistant_payload,
+    generate_assistant_reply,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -118,17 +121,21 @@ def chat():
             else []
         )
 
-        llm_reply = generate_assistant_reply(
+        llm_payload = generate_assistant_reply(
             message,
             user_context,
             history_messages=history_messages,
         )
-        if llm_reply:
-            reply = llm_reply
+        if llm_payload:
+            payload = llm_payload
             recommendations = _build_recommendations(message, symptoms)
         else:
             recommendations = _build_recommendations(message, symptoms)
-            reply = " ".join(recommendations)
+            payload = fallback_assistant_payload(" ".join(recommendations))
+
+        reply = payload["text"]
+        response_type = payload.get("response_type") or "answer"
+        options = payload.get("options") or []
 
         if existing:
             append_exchange(
@@ -137,6 +144,8 @@ def chat():
                 reply,
                 analysis=analysis,
                 recommendations=recommendations,
+                response_type=response_type,
+                options=options,
             )
             session = existing
         else:
@@ -146,6 +155,8 @@ def chat():
                 reply,
                 analysis=analysis,
                 recommendations=recommendations,
+                response_type=response_type,
+                options=options,
             )
 
         db.session.commit()
@@ -155,6 +166,8 @@ def chat():
             "message": "Chat response generated.",
             "message_code": "ai.chat_generated",
             "reply": reply,
+            "response_type": response_type,
+            "options": options if response_type == "clarify" else [],
             "recommendations": recommendations,
             "chat_id": session.id,
             "session_id": session.id,
