@@ -12,6 +12,7 @@ class AIHealthAssistantSession(db.Model):
     posted_messages = db.Column(db.Text, nullable=True)
     saved_chat_sessions = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
 
     user_profile = db.relationship("UserProfile", back_populates="ai_sessions")
 
@@ -24,4 +25,5 @@ class AIHealthAssistantSession(db.Model):
             "posted_messages": self.posted_messages,
             "saved_chat_sessions": self.saved_chat_sessions,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

@@ -1,6 +1,7 @@
 import json
 from typing import Any
 
+from app.utils import utc_now
 from app.extensions import db
 from app.models.ai_health_assistant_session_model import AIHealthAssistantSession
 
@@ -59,13 +60,27 @@ def history_for_llm(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
     ]
 
 
-def session_preview(messages: list[dict[str, Any]]) -> str | None:
+def session_preview(messages: list[dict[str, Any]], *, max_len: int = 40) -> str | None:
     for entry in messages:
         if entry.get("role") == "user":
             text = (entry.get("content") or "").strip()
             if text:
-                return text
+                if len(text) <= max_len:
+                    return text
+                return text[: max_len - 1].rstrip() + "…"
     return None
+
+
+def chat_list_item(session: AIHealthAssistantSession) -> dict[str, Any]:
+    messages = parse_chat_messages(session.saved_chat_sessions)
+    title = session_preview(messages) or "Chat"
+    last_at = session.updated_at or session.created_at
+    return {
+        "chat_id": session.id,
+        "title": title,
+        "last_message_at": last_at.isoformat() if last_at else None,
+        "message_count": len(messages),
+    }
 
 
 def get_session_for_user(
@@ -81,7 +96,10 @@ def get_session_for_user(
     if session_id is not None:
         return query.filter_by(id=session_id).first()
 
-    return query.order_by(AIHealthAssistantSession.created_at.desc()).first()
+    return query.order_by(
+        AIHealthAssistantSession.updated_at.desc(),
+        AIHealthAssistantSession.created_at.desc(),
+    ).first()
 
 
 def get_recent_messages(
@@ -146,6 +164,7 @@ def append_exchange(
         session.symptom_analysis_log = json.dumps(analysis)
     if recommendations is not None:
         session.generated_recommendations = json.dumps(recommendations)
+    session.updated_at = utc_now()
     return messages
 
 
@@ -167,12 +186,15 @@ def create_session(
             options=options,
         ),
     ]
+    now = utc_now()
     session = AIHealthAssistantSession(
         profile_id=profile_id,
         symptom_analysis_log=json.dumps(analysis),
         generated_recommendations=json.dumps(recommendations),
         posted_messages=json.dumps([{"role": "user", "content": user_message}]),
         saved_chat_sessions=json.dumps(messages),
+        created_at=now,
+        updated_at=now,
     )
     db.session.add(session)
     return session

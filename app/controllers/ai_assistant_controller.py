@@ -10,6 +10,7 @@ from app.models.symptom_tracking_log_model import SymptomTrackingLog
 from app.services.ai_assistant import CONVERSATION_HISTORY_LIMIT, build_user_context
 from app.services.ai_assistant_chat_store import (
     append_exchange,
+    chat_list_item,
     create_session,
     get_recent_messages,
     get_session_for_user,
@@ -137,7 +138,7 @@ def chat():
             # Never substitute rule-based recommendations into the chat reply.
             return error_response(exc.code, exc.message, exc.status)
 
-        # Sidebar tips only — independent of the chat reply text.
+        # Optional tips stored on the session only — never used as the chat reply.
         recommendations = _build_recommendations(message, symptoms)
 
         reply = payload["text"]
@@ -242,7 +243,10 @@ def get_sessions():
     try:
         sessions = (
             AIHealthAssistantSession.query.filter_by(profile_id=current_user.id)
-            .order_by(AIHealthAssistantSession.created_at.desc())
+            .order_by(
+                AIHealthAssistantSession.updated_at.desc(),
+                AIHealthAssistantSession.created_at.desc(),
+            )
             .limit(20)
             .all()
         )
@@ -251,4 +255,24 @@ def get_sessions():
         }), 200
     except Exception:
         logger.exception("Failed to load AI assistant sessions.")
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
+
+
+def get_chats():
+    """List past chats for the sidebar: chat_id, title, last_message_at."""
+    try:
+        sessions = (
+            AIHealthAssistantSession.query.filter_by(profile_id=current_user.id)
+            .order_by(
+                AIHealthAssistantSession.updated_at.desc(),
+                AIHealthAssistantSession.created_at.desc(),
+            )
+            .limit(30)
+            .all()
+        )
+        return jsonify({
+            "chats": [chat_list_item(session) for session in sessions],
+        }), 200
+    except Exception:
+        logger.exception("Failed to load AI assistant chats.")
         return error_response("server.internal_error", "An internal server error occurred.", 500)
