@@ -146,6 +146,20 @@ def main() -> int:
         db.session.commit()
         print("Migrations complete.")
 
+        print("Applying AI assistant session columns...")
+        add_column("ai_health_assistant_sessions", "updated_at DATETIME NULL")
+        if column_exists("ai_health_assistant_sessions", "updated_at"):
+            db.session.execute(
+                text(
+                    """
+                    UPDATE ai_health_assistant_sessions
+                    SET updated_at = created_at
+                    WHERE updated_at IS NULL
+                    """
+                )
+            )
+            db.session.commit()
+
         print("Making user_profiles.date_of_birth nullable...")
         try:
             db.session.execute(

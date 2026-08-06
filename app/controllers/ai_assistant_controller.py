@@ -12,8 +12,10 @@ from app.services.ai_assistant_chat_store import (
     append_exchange,
     chat_list_item,
     create_session,
+    ensure_ai_session_schema,
     get_recent_messages,
     get_session_for_user,
+    list_sessions_for_user,
     parse_chat_messages,
     session_preview,
 )
@@ -97,6 +99,8 @@ def chat():
             )
 
     try:
+        # Ensure schema before session lookups (covers missing updated_at in prod).
+        ensure_ai_session_schema()
         symptoms = (
             SymptomTrackingLog.query.filter_by(profile_id=current_user.id)
             .order_by(SymptomTrackingLog.date_time.desc())
@@ -192,6 +196,7 @@ def get_chat_history():
     session_id = request.args.get("session_id", type=int)
 
     try:
+        ensure_ai_session_schema()
         if session_id is not None:
             session = get_session_for_user(current_user.id, session_id=session_id)
             if not session:
@@ -241,15 +246,8 @@ def get_recommendations():
 
 def get_sessions():
     try:
-        sessions = (
-            AIHealthAssistantSession.query.filter_by(profile_id=current_user.id)
-            .order_by(
-                AIHealthAssistantSession.updated_at.desc(),
-                AIHealthAssistantSession.created_at.desc(),
-            )
-            .limit(20)
-            .all()
-        )
+        ensure_ai_session_schema()
+        sessions = list_sessions_for_user(current_user.id, limit=20)
         return jsonify({
             "sessions": [_session_payload(session) for session in sessions],
         }), 200
@@ -261,15 +259,8 @@ def get_sessions():
 def get_chats():
     """List past chats for the sidebar: chat_id, title, last_message_at."""
     try:
-        sessions = (
-            AIHealthAssistantSession.query.filter_by(profile_id=current_user.id)
-            .order_by(
-                AIHealthAssistantSession.updated_at.desc(),
-                AIHealthAssistantSession.created_at.desc(),
-            )
-            .limit(30)
-            .all()
-        )
+        ensure_ai_session_schema()
+        sessions = list_sessions_for_user(current_user.id, limit=30)
         return jsonify({
             "chats": [chat_list_item(session) for session in sessions],
         }), 200
