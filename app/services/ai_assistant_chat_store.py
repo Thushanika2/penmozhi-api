@@ -1,9 +1,73 @@
 import json
+import logging
 from typing import Any
+
+from sqlalchemy import inspect, text
 
 from app.utils import utc_now
 from app.extensions import db
 from app.models.ai_health_assistant_session_model import AIHealthAssistantSession
+
+logger = logging.getLogger(__name__)
+
+_schema_ready = False
+
+
+def ensure_ai_session_schema() -> None:
+    """
+    Idempotently add ai_health_assistant_sessions.updated_at when missing.
+    Production can lag Alembic; without this column every chat list/history
+    query 500s because the SQLAlchemy model selects it.
+    """
+    global _schema_ready
+    if _schema_ready:
+        return
+
+    try:
+        inspector = inspect(db.engine)
+        if "ai_health_assistant_sessions" not in inspector.get_table_names():
+            _schema_ready = True
+            return
+
+        columns = {col["name"] for col in inspector.get_columns("ai_health_assistant_sessions")}
+        if "updated_at" not in columns:
+            logger.warning(
+                "Adding missing column ai_health_assistant_sessions.updated_at"
+            )
+            db.session.execute(
+                text(
+                    "ALTER TABLE `ai_health_assistant_sessions` "
+                    "ADD COLUMN `updated_at` DATETIME NULL"
+                )
+            )
+            db.session.execute(
+                text(
+                    "UPDATE `ai_health_assistant_sessions` "
+                    "SET `updated_at` = `created_at` "
+                    "WHERE `updated_at` IS NULL"
+                )
+            )
+            db.session.commit()
+            logger.info("Added ai_health_assistant_sessions.updated_at")
+        _schema_ready = True
+    except Exception:
+        db.session.rollback()
+        logger.exception("Failed to ensure ai_health_assistant_sessions schema")
+        # Do not mark ready — retry on next request.
+
+
+def list_sessions_for_user(profile_id: int, *, limit: int = 30) -> list[AIHealthAssistantSession]:
+    ensure_ai_session_schema()
+    return (
+        AIHealthAssistantSession.query.filter_by(profile_id=profile_id)
+        .order_by(
+            AIHealthAssistantSession.updated_at.desc(),
+            AIHealthAssistantSession.created_at.desc(),
+            AIHealthAssistantSession.id.desc(),
+        )
+        .limit(limit)
+        .all()
+    )
 
 
 def parse_chat_messages(raw: str | None) -> list[dict[str, Any]]:
@@ -74,7 +138,7 @@ def session_preview(messages: list[dict[str, Any]], *, max_len: int = 40) -> str
 def chat_list_item(session: AIHealthAssistantSession) -> dict[str, Any]:
     messages = parse_chat_messages(session.saved_chat_sessions)
     title = session_preview(messages) or "Chat"
-    last_at = session.updated_at or session.created_at
+    last_at = getattr(session, "updated_at", None) or session.created_at
     return {
         "chat_id": session.id,
         "title": title,
@@ -89,6 +153,7 @@ def get_session_for_user(
     *,
     new_session: bool = False,
 ) -> AIHealthAssistantSession | None:
+    ensure_ai_session_schema()
     if new_session:
         return None
 
@@ -99,6 +164,7 @@ def get_session_for_user(
     return query.order_by(
         AIHealthAssistantSession.updated_at.desc(),
         AIHealthAssistantSession.created_at.desc(),
+        AIHealthAssistantSession.id.desc(),
     ).first()
 
 
@@ -147,6 +213,7 @@ def append_exchange(
     response_type: str = "answer",
     options: list[str] | None = None,
 ) -> list[dict[str, Any]]:
+    ensure_ai_session_schema()
     messages = parse_chat_messages(session.saved_chat_sessions)
     messages.extend([
         {"role": "user", "content": user_message},
@@ -178,6 +245,7 @@ def create_session(
     response_type: str = "answer",
     options: list[str] | None = None,
 ) -> AIHealthAssistantSession:
+    ensure_ai_session_schema()
     messages = [
         {"role": "user", "content": user_message},
         _assistant_message(
