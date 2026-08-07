@@ -168,6 +168,14 @@ def create_standalone_education_video():
     return education_video_ctrl.create_admin_education_video()
 
 
+@admin_bp.route("/education/videos/upload-signature", methods=["POST"])
+@roles_required("admin")
+def create_standalone_education_video_upload_signature():
+    from app.controllers import education_video_controller as education_video_ctrl
+
+    return education_video_ctrl.create_admin_education_video_upload_signature()
+
+
 @admin_bp.route("/education/videos/<int:video_id>", methods=["PUT"])
 @roles_required("admin")
 def update_standalone_education_video(video_id):

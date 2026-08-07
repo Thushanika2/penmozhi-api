@@ -36,7 +36,14 @@ DB_NAME=penmozhi_db
 JWT_SECRET_KEY=<unique-random-secret-with-at-least-32-characters>
 JWT_ACCESS_TOKEN_EXPIRES_MINUTES=1440
 FLASK_DEBUG=True
+CLOUDINARY_CLOUD_NAME=<cloud-name>
+CLOUDINARY_API_KEY=<api-key>
+CLOUDINARY_API_SECRET=<api-secret>
 ```
+
+All three Cloudinary variables are required for admin education-video uploads.
+On Railway, set them on the API service itself. Startup logs report only whether
+each variable is present; secret values are never logged.
 
 ### Create the database
 
@@ -905,3 +912,10 @@ Authorization: Bearer {{access_token}}
 - `500` usually indicates a server or database issue.
 - Make sure MySQL is running and your `.env` values are correct.
 - If the server does not start, verify that dependencies were installed successfully.
+- Admin video uploads use signed 6 MB chunks sent directly from the browser to
+  Cloudinary. The API only signs the upload and verifies the completed response,
+  avoiding Vercel proxy and Gunicorn request timeouts for large files.
+- A `502` with `education.cloudinary_auth_failed` means the Cloudinary values on
+  Railway are present but invalid or do not belong to the same Cloudinary account.
+- A `413` with `validation.video_too_large` means the file or Cloudinary account
+  upload limit is below the requested video size (the app maximum is 200 MB).

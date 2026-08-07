@@ -1,5 +1,6 @@
 from flask import Flask, jsonify, request
 from sqlalchemy.exc import OperationalError, ProgrammingError
+from werkzeug.exceptions import RequestEntityTooLarge
 
 from app.config import Config
 from app.extensions import db, jwt, limiter, migrate
@@ -136,6 +137,13 @@ def create_app():
             "error": "Database schema error. Redeploy the API so migrations can run.",
             "error_code": "db.schema_error",
         }), 500
+
+    @app.errorhandler(RequestEntityTooLarge)
+    def handle_request_entity_too_large(_err):
+        return jsonify({
+            "error": "The video exceeds the 200 MB upload limit.",
+            "error_code": "validation.video_too_large",
+        }), 413
 
     @app.errorhandler(500)
     def handle_internal_error(err):

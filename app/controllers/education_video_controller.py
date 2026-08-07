@@ -8,8 +8,13 @@ from app.api_responses import error_response, message_response, validation_error
 from app.extensions import db
 from app.models.education_video_model import EducationVideo
 from app.services.cloudinary_service import (
+    EDUCATION_VIDEO_FOLDER,
+    MAX_VIDEO_BYTES,
+    classify_cloudinary_upload_error,
+    create_direct_upload_signature,
     destroy_education_video,
     upload_education_video,
+    validate_direct_upload_result,
     validate_video_file,
 )
 from app.utils import utc_now
@@ -87,38 +92,104 @@ def list_admin_education_videos():
     }), 200
 
 
+def create_admin_education_video_upload_signature():
+    """Issue a signed upload config; the API secret is never returned."""
+    try:
+        config = create_direct_upload_signature(folder=EDUCATION_VIDEO_FOLDER)
+        return jsonify({"upload": config}), 200
+    except RuntimeError as exc:
+        logger.exception("Cloudinary is unavailable while creating an upload signature")
+        return error_response("education.cloudinary_not_configured", str(exc), 503)
+    except Exception as exc:
+        logger.exception("Failed to create a Cloudinary upload signature")
+        code, message, status = classify_cloudinary_upload_error(exc)
+        return error_response(code, message, status)
+
+
 def create_admin_education_video():
     _ensure_education_videos_schema()
 
-    title = (request.form.get("title") or "").strip()
-    description = (request.form.get("description") or "").strip() or None
-    category = (request.form.get("category") or "").strip()
-    file_storage = request.files.get("video") or request.files.get("file")
+    direct_payload = request.get_json(silent=True) if request.is_json else None
+    source = direct_payload if isinstance(direct_payload, dict) else request.form
+    title = str(source.get("title") or "").strip()
+    description = str(source.get("description") or "").strip() or None
+    category = str(source.get("category") or "").strip()
+    file_storage = None
+    if direct_payload is None:
+        file_storage = request.files.get("video") or request.files.get("file")
 
     errors = []
     if not title:
         errors.append(("validation.title_required", "title is required."))
     if not category:
         errors.append(("validation.category_required", "category is required."))
-    validation_error = validate_video_file(file_storage)
-    if validation_error:
-        errors.append(("validation.video_invalid", validation_error))
+    if direct_payload is None:
+        validation_error = validate_video_file(file_storage)
+        if validation_error:
+            validation_code = (
+                "validation.video_too_large"
+                if "200 MB" in validation_error
+                else "validation.video_invalid"
+            )
+            errors.append((validation_code, validation_error))
+    elif not isinstance(direct_payload.get("upload"), dict):
+        errors.append(
+            ("validation.video_invalid", "A completed Cloudinary video upload is required.")
+        )
 
     content_length = request.content_length
-    if content_length and content_length > 200 * 1024 * 1024:
+    if direct_payload is None and content_length and content_length > MAX_VIDEO_BYTES:
         errors.append(("validation.video_too_large", "Video must be 200 MB or smaller."))
 
     if errors:
-        return validation_errors(errors, 400)
+        status = 413 if any(code == "validation.video_too_large" for code, _ in errors) else 400
+        return validation_errors(errors, status)
+
+    uploaded = None
+    try:
+        if direct_payload is not None:
+            uploaded = validate_direct_upload_result(
+                direct_payload["upload"],
+                folder=EDUCATION_VIDEO_FOLDER,
+            )
+        else:
+            uploaded = upload_education_video(file_storage, folder=EDUCATION_VIDEO_FOLDER)
+    except RuntimeError as exc:
+        db.session.rollback()
+        logger.exception("Cloudinary is not configured for education video upload")
+        return error_response("education.cloudinary_not_configured", str(exc), 503)
+    except ValueError as exc:
+        db.session.rollback()
+        logger.exception("Rejected invalid direct Cloudinary upload response")
+        if "200 MB" in str(exc):
+            return error_response("validation.video_too_large", str(exc), 413)
+        return error_response(
+            "education.video_invalid_response",
+            "The completed video upload could not be verified. Please upload it again.",
+            400,
+        )
+    except Exception as exc:
+        db.session.rollback()
+        logger.exception(
+            "Cloudinary education video upload failed admin_id=%s filename=%s request_bytes=%s",
+            current_user.id,
+            getattr(file_storage, "filename", None),
+            request.content_length,
+        )
+        code, message, status = classify_cloudinary_upload_error(exc)
+        return error_response(code, message, status)
 
     try:
-        uploaded = upload_education_video(file_storage, folder="penmozhi/education/videos")
         secure_url = uploaded.get("secure_url")
         public_id = uploaded.get("public_id")
         if not secure_url or not public_id:
+            logger.error(
+                "Cloudinary upload response omitted required fields keys=%s",
+                sorted(uploaded.keys()),
+            )
             return error_response(
-                "education.video_upload_failed",
-                "Cloudinary did not return a video URL.",
+                "education.video_invalid_response",
+                "The video host returned an incomplete upload response.",
                 502,
             )
 
@@ -142,15 +213,24 @@ def create_admin_education_video():
             201,
             education_video=video.to_dict(include_video_url=True, admin=True),
         )
-    except RuntimeError as exc:
-        db.session.rollback()
-        return error_response("education.cloudinary_not_configured", str(exc), 503)
     except Exception:
         db.session.rollback()
-        logger.exception("Failed to create education video")
+        logger.exception(
+            "Video reached Cloudinary but database save failed admin_id=%s public_id=%s",
+            current_user.id,
+            uploaded.get("public_id") if uploaded else None,
+        )
+        if uploaded and uploaded.get("public_id"):
+            try:
+                destroy_education_video(uploaded["public_id"])
+            except Exception:
+                logger.exception(
+                    "Failed to clean up Cloudinary asset after database save failure public_id=%s",
+                    uploaded["public_id"],
+                )
         return error_response(
-            "education.video_upload_failed",
-            "Video upload failed. Please try again.",
+            "education.video_save_failed",
+            "The video uploaded, but its education record could not be saved.",
             500,
         )
 

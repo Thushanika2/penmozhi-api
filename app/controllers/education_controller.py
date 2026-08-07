@@ -7,8 +7,12 @@ from app.api_responses import error_response, message_response, validation_error
 from app.extensions import db
 from app.models.educational_resource_model import EducationalResource
 from app.services.cloudinary_service import (
+    EDUCATION_VIDEO_FOLDER,
+    MAX_VIDEO_BYTES,
+    classify_cloudinary_upload_error,
     destroy_education_video,
     upload_education_video,
+    validate_direct_upload_result,
     validate_video_file,
 )
 from app.utils import parse_date, utc_now
@@ -216,63 +220,113 @@ def upload_education_resource_video(resource_id):
     if not resource:
         return error_response("education.not_found", "Educational resource not found.", 404)
 
-    file_storage = request.files.get("video") or request.files.get("file")
-    validation_error = validate_video_file(file_storage)
-    if validation_error:
+    direct_payload = request.get_json(silent=True) if request.is_json else None
+    file_storage = None
+    if direct_payload is None:
+        file_storage = request.files.get("video") or request.files.get("file")
+        validation_error = validate_video_file(file_storage)
+        if validation_error:
+            validation_code = (
+                "validation.video_too_large"
+                if "200 MB" in validation_error
+                else "validation.video_invalid"
+            )
+            return validation_errors(
+                [(validation_code, validation_error)],
+                413 if validation_code == "validation.video_too_large" else 400,
+            )
+    elif not isinstance(direct_payload, dict) or not isinstance(
+        direct_payload.get("upload"), dict
+    ):
         return validation_errors(
-            [("validation.video_invalid", validation_error)],
+            [("validation.video_invalid", "A completed Cloudinary video upload is required.")],
             400,
         )
 
     content_length = request.content_length
-    if content_length and content_length > 200 * 1024 * 1024:
+    if direct_payload is None and content_length and content_length > MAX_VIDEO_BYTES:
         return validation_errors(
             [("validation.video_too_large", "Video must be 200 MB or smaller.")],
-            400,
+            413,
         )
 
     previous_public_id = resource.video_public_id
+    uploaded = None
     try:
-        uploaded = upload_education_video(file_storage)
+        if direct_payload is not None:
+            uploaded = validate_direct_upload_result(
+                direct_payload["upload"],
+                folder=EDUCATION_VIDEO_FOLDER,
+            )
+        else:
+            uploaded = upload_education_video(file_storage, folder=EDUCATION_VIDEO_FOLDER)
         secure_url = uploaded.get("secure_url")
         public_id = uploaded.get("public_id")
         if not secure_url or not public_id:
             return error_response(
-                "education.video_upload_failed",
-                "Cloudinary did not return a video URL.",
+                "education.video_invalid_response",
+                "The video host returned an incomplete upload response.",
                 502,
             )
+    except RuntimeError as exc:
+        db.session.rollback()
+        logger.exception("Cloudinary is not configured for article video upload")
+        return error_response("education.cloudinary_not_configured", str(exc), 503)
+    except ValueError as exc:
+        db.session.rollback()
+        logger.exception("Rejected invalid direct Cloudinary article upload response")
+        if "200 MB" in str(exc):
+            return error_response("validation.video_too_large", str(exc), 413)
+        return error_response(
+            "education.video_invalid_response",
+            "The completed video upload could not be verified. Please upload it again.",
+            400,
+        )
+    except Exception as exc:
+        db.session.rollback()
+        logger.exception("Education video upload failed for resource_id=%s", resource_id)
+        code, message, status = classify_cloudinary_upload_error(exc)
+        return error_response(code, message, status)
 
+    try:
         resource.video_url = secure_url
         resource.video_public_id = public_id
         db.session.commit()
-
-        if previous_public_id and previous_public_id != public_id:
-            try:
-                destroy_education_video(previous_public_id)
-            except Exception:
-                logger.exception(
-                    "Failed to destroy previous Cloudinary video public_id=%s",
-                    previous_public_id,
-                )
-
-        return message_response(
-            "education.video_uploaded",
-            "Video uploaded successfully.",
-            200,
-            education_resource=resource.to_dict(),
-        )
-    except RuntimeError as exc:
-        db.session.rollback()
-        return error_response("education.cloudinary_not_configured", str(exc), 503)
     except Exception:
         db.session.rollback()
-        logger.exception("Education video upload failed for resource_id=%s", resource_id)
+        logger.exception(
+            "Video reached Cloudinary but article save failed resource_id=%s public_id=%s",
+            resource_id,
+            public_id,
+        )
+        try:
+            destroy_education_video(public_id)
+        except Exception:
+            logger.exception(
+                "Failed to clean up Cloudinary asset after article save failure public_id=%s",
+                public_id,
+            )
         return error_response(
-            "education.video_upload_failed",
-            "Video upload failed. Please try again.",
+            "education.video_save_failed",
+            "The video uploaded, but its education record could not be saved.",
             500,
         )
+
+    if previous_public_id and previous_public_id != public_id:
+        try:
+            destroy_education_video(previous_public_id)
+        except Exception:
+            logger.exception(
+                "Failed to destroy previous Cloudinary video public_id=%s",
+                previous_public_id,
+            )
+
+    return message_response(
+        "education.video_uploaded",
+        "Video uploaded successfully.",
+        200,
+        education_resource=resource.to_dict(),
+    )
 
 
 def delete_education_resource_video(resource_id):

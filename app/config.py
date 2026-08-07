@@ -191,8 +191,10 @@ class Config:
     CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
     CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
     CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
-    # Allow education video uploads up to 200 MB.
-    MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", str(200 * 1024 * 1024)))
+    # Keep transport overhead outside the 200 MB video-file allowance. Direct
+    # browser-to-Cloudinary uploads normally send only small JSON requests here,
+    # while this limit protects the legacy multipart endpoint.
+    MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", str(210 * 1024 * 1024)))
 
     @staticmethod
     def validate():
