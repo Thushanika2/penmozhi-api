@@ -79,7 +79,7 @@ def validate_video_file(file_storage) -> str | None:
 def upload_education_video(file_storage, *, folder: str = "penmozhi/education") -> dict:
     """
     Upload a video to Cloudinary using chunked upload_large.
-    Returns dict with secure_url and public_id.
+    Returns dict with secure_url, public_id, and thumbnail_url (first-frame jpg).
     """
     if not cloudinary_configured():
         raise RuntimeError("Cloudinary is not configured.")
@@ -90,9 +90,20 @@ def upload_education_video(file_storage, *, folder: str = "penmozhi/education") 
         folder=folder,
         chunk_size=6_000_000,
     )
+    public_id = result.get("public_id")
+    secure_url = result.get("secure_url")
+    thumbnail_url = None
+    cloud_name = current_app.config.get("CLOUDINARY_CLOUD_NAME")
+    if public_id and cloud_name:
+        # Cloudinary auto thumbnail from the first frame.
+        thumbnail_url = (
+            f"https://res.cloudinary.com/{cloud_name}/video/upload/so_0/{public_id}.jpg"
+        )
+
     return {
-        "secure_url": result.get("secure_url"),
-        "public_id": result.get("public_id"),
+        "secure_url": secure_url,
+        "public_id": public_id,
+        "thumbnail_url": thumbnail_url,
     }
 
 

@@ -29,6 +29,7 @@ def create_app():
         AIHealthAssistantSession,
         PCOSDisorderStatus,
         EducationalResource,
+        EducationVideo,
         ForumPost,
         ForumComment,
         DailyLog,
