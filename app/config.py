@@ -137,7 +137,7 @@ class Config:
         "max_overflow": 10,
     }
 
-    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "super-secret-key-change-me")
+    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(
         minutes=int(os.getenv("JWT_ACCESS_TOKEN_EXPIRES_MINUTES", "1440"))
     )
@@ -182,6 +182,11 @@ class Config:
 
     @staticmethod
     def validate():
+        if not Config.JWT_SECRET_KEY or len(Config.JWT_SECRET_KEY) < 32:
+            raise RuntimeError(
+                "JWT_SECRET_KEY must be configured with at least 32 characters."
+            )
+
         if not Config.SQLALCHEMY_DATABASE_URI:
             raise RuntimeError(
                 "Database is not configured. Link a Railway MySQL service or set "
