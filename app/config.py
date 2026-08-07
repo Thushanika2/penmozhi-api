@@ -1,6 +1,8 @@
 from datetime import timedelta
+import hashlib
 import os
 import re
+import secrets
 from urllib.parse import quote_plus, urlparse, urlunparse, parse_qsl, urlencode
 
 from dotenv import load_dotenv
@@ -137,7 +139,19 @@ class Config:
         "max_overflow": 10,
     }
 
-    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+    _CONFIGURED_JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+    JWT_SECRET_KEY_IS_EPHEMERAL = not bool(_CONFIGURED_JWT_SECRET_KEY)
+    JWT_SECRET_KEY_WAS_DERIVED = bool(_CONFIGURED_JWT_SECRET_KEY) and len(
+        _CONFIGURED_JWT_SECRET_KEY
+    ) < 32
+    # A random process-local fallback keeps a misconfigured deployment secure and
+    # available. Configure JWT_SECRET_KEY in production so sessions survive restarts.
+    if JWT_SECRET_KEY_WAS_DERIVED:
+        JWT_SECRET_KEY = hashlib.sha256(
+            b"penmozhi-jwt-v1\0" + _CONFIGURED_JWT_SECRET_KEY.encode("utf-8")
+        ).hexdigest()
+    else:
+        JWT_SECRET_KEY = _CONFIGURED_JWT_SECRET_KEY or secrets.token_urlsafe(48)
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(
         minutes=int(os.getenv("JWT_ACCESS_TOKEN_EXPIRES_MINUTES", "1440"))
     )
@@ -182,10 +196,15 @@ class Config:
 
     @staticmethod
     def validate():
-        if not Config.JWT_SECRET_KEY or len(Config.JWT_SECRET_KEY) < 32:
+        if (
+            Config._CONFIGURED_JWT_SECRET_KEY
+            and len(Config._CONFIGURED_JWT_SECRET_KEY) < 16
+        ):
             raise RuntimeError(
-                "JWT_SECRET_KEY must be configured with at least 32 characters."
+                "JWT_SECRET_KEY must be configured with at least 16 characters."
             )
+        if len(Config.JWT_SECRET_KEY) < 32:
+            raise RuntimeError("Effective JWT signing key must be at least 32 characters.")
 
         if not Config.SQLALCHEMY_DATABASE_URI:
             raise RuntimeError(

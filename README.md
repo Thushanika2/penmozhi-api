@@ -33,7 +33,7 @@ DB_PASSWORD=your_password
 DB_HOST=localhost
 DB_PORT=3306
 DB_NAME=penmozhi_db
-JWT_SECRET_KEY=change-this-to-a-long-secret-key
+JWT_SECRET_KEY=<unique-random-secret-with-at-least-32-characters>
 JWT_ACCESS_TOKEN_EXPIRES_MINUTES=1440
 FLASK_DEBUG=True
 ```

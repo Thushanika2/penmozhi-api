@@ -4,7 +4,8 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, time
 
-os.environ.setdefault("JWT_SECRET_KEY", "test-only-secret-key-with-at-least-32-characters")
+TEST_JWT_SECRET = "test-only-secret-key-with-at-least-32-characters"
+os.environ.setdefault("JWT_SECRET_KEY", TEST_JWT_SECRET)
 
 from app import create_app
 from app.config import Config
@@ -22,7 +23,7 @@ class PrivacyIsolationTest(unittest.TestCase):
         database_path = os.path.join(cls.temp_dir.name, "privacy-isolation.sqlite")
         Config.SQLALCHEMY_DATABASE_URI = f"sqlite:///{database_path}"
         Config.SQLALCHEMY_ENGINE_OPTIONS = {}
-        Config.JWT_SECRET_KEY = os.environ["JWT_SECRET_KEY"]
+        Config.JWT_SECRET_KEY = TEST_JWT_SECRET
         Config.ENABLE_SCHEDULER = False
 
         cls.app = create_app()

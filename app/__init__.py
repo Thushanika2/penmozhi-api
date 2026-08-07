@@ -11,6 +11,17 @@ def create_app():
 
     app = Flask(__name__)
     app.config.from_object(Config)
+    if Config.JWT_SECRET_KEY_IS_EPHEMERAL:
+        app.logger.warning(
+            "JWT_SECRET_KEY is not configured; using a secure ephemeral key. "
+            "Set a permanent 32+ character JWT_SECRET_KEY so sessions survive restarts."
+        )
+    elif Config.JWT_SECRET_KEY_WAS_DERIVED:
+        app.logger.warning(
+            "JWT_SECRET_KEY is shorter than the recommended 32 characters; "
+            "using a stable SHA-256-derived signing key. Rotate it to a unique "
+            "32+ character value in Railway."
+        )
     db.init_app(app)
     jwt.init_app(app)
     migrate.init_app(app, db)
