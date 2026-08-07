@@ -6,6 +6,7 @@ from app.models.medication_supplement_reminder_model import MedicationSupplement
 from app.models.ai_health_assistant_session_model import AIHealthAssistantSession
 from app.models.pcos_disorder_status_model import PCOSDisorderStatus
 from app.models.educational_resource_model import EducationalResource
+from app.models.education_video_model import EducationVideo
 from app.models.forum_post_model import ForumPost
 from app.models.forum_comment_model import ForumComment
 from app.models.daily_log_model import DailyLog
@@ -31,6 +32,7 @@ __all__ = [
     "AIHealthAssistantSession",
     "PCOSDisorderStatus",
     "EducationalResource",
+    "EducationVideo",
     "ForumPost",
     "ForumComment",
     "DailyLog",

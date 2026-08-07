@@ -152,6 +152,38 @@ def get_user_consents(user_id):
     return privacy_ctrl.get_user_consents(user_id)
 
 
+@admin_bp.route("/education/videos", methods=["GET"])
+@roles_required("admin")
+def list_standalone_education_videos():
+    from app.controllers import education_video_controller as education_video_ctrl
+
+    return education_video_ctrl.list_admin_education_videos()
+
+
+@admin_bp.route("/education/videos", methods=["POST"])
+@roles_required("admin")
+def create_standalone_education_video():
+    from app.controllers import education_video_controller as education_video_ctrl
+
+    return education_video_ctrl.create_admin_education_video()
+
+
+@admin_bp.route("/education/videos/<int:video_id>", methods=["PUT"])
+@roles_required("admin")
+def update_standalone_education_video(video_id):
+    from app.controllers import education_video_controller as education_video_ctrl
+
+    return education_video_ctrl.update_admin_education_video(video_id)
+
+
+@admin_bp.route("/education/videos/<int:video_id>", methods=["DELETE"])
+@roles_required("admin")
+def delete_standalone_education_video(video_id):
+    from app.controllers import education_video_controller as education_video_ctrl
+
+    return education_video_ctrl.delete_admin_education_video(video_id)
+
+
 @admin_bp.route("/education/<int:article_id>/video", methods=["POST"])
 @roles_required("admin")
 def upload_education_video(article_id):
