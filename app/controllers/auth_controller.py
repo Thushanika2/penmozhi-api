@@ -358,6 +358,12 @@ def refresh():
 
     try:
         decoded = decode_token(validated["refresh_token"])
+        if decoded.get("type") != "refresh":
+            return error_response(
+                "auth.invalid_refresh_token",
+                "Invalid or expired refresh token.",
+                401,
+            )
         user_id = int(decoded["sub"])
         user = db.session.get(UserProfile, user_id)
         if not user:

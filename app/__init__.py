@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from app.config import Config
@@ -54,6 +54,18 @@ def create_app():
 
     register_blueprints(app)
 
+    @app.after_request
+    def prevent_private_response_caching(response):
+        """Never allow API or admin responses to enter a shared cache."""
+        if request.path.startswith(("/api", "/admin")):
+            response.headers["Cache-Control"] = (
+                "private, no-store, no-cache, max-age=0, must-revalidate"
+            )
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            response.vary.add("Authorization")
+        return response
+
     from app.services.scheduler_service import init_scheduler
 
     init_scheduler(app)
@@ -83,7 +95,6 @@ def create_app():
         db.session.rollback()
         orig = getattr(err, "orig", None)
         code = orig.args[0] if orig and orig.args else None
-        message = str(orig) if orig else str(err)
 
         if code == 1049:
             return jsonify({"error": "Invalid database name configured.", "error_code": "db.invalid_name"}), 500
@@ -101,12 +112,10 @@ def create_app():
             return jsonify({
                 "error": "Database schema is out of date. Redeploy the API so migrations can run.",
                 "error_code": "db.schema_mismatch",
-                "detail": message,
             }), 500
         return jsonify({
             "error": "Database connection failed.",
             "error_code": "db.connection_failed",
-            "detail": message,
         }), 500
 
     @app.errorhandler(ProgrammingError)

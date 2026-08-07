@@ -1,7 +1,12 @@
 from datetime import datetime, timezone
 from functools import wraps
 
-from flask_jwt_extended import current_user, get_jwt, verify_jwt_in_request
+from flask_jwt_extended import (
+    current_user,
+    get_jwt,
+    get_jwt_identity,
+    verify_jwt_in_request,
+)
 
 from app.api_responses import error_response
 
@@ -9,6 +14,14 @@ from app.api_responses import error_response
 def _check_user_session(user):
     if not user:
         return error_response("auth.user_not_found", "User not found.", 404)
+
+    try:
+        request_user_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        return error_response("auth.invalid_token", "Invalid authentication token.", 401)
+
+    if user.id != request_user_id:
+        return error_response("auth.invalid_token", "Invalid authentication token.", 401)
 
     status = getattr(user, "status", "active")
     if status != "active":
