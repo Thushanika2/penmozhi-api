@@ -16,6 +16,10 @@ def create_app():
     migrate.init_app(app, db)
     limiter.init_app(app)
 
+    from app.services.cloudinary_service import init_cloudinary
+
+    init_cloudinary(app)
+
     from app.models import (  # noqa: F401
         UserProfile,
         HealthProfile,

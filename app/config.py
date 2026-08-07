@@ -174,6 +174,12 @@ class Config:
 
     ENABLE_SCHEDULER = os.getenv("ENABLE_SCHEDULER", "false").lower() in ("true", "1", "yes")
 
+    CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
+    CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
+    CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
+    # Allow education video uploads up to 200 MB.
+    MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", str(200 * 1024 * 1024)))
+
     @staticmethod
     def validate():
         if not Config.SQLALCHEMY_DATABASE_URI:

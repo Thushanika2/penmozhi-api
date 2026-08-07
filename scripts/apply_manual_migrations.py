@@ -160,6 +160,10 @@ def main() -> int:
             )
             db.session.commit()
 
+        print("Applying education video columns...")
+        add_column("educational_resources", "video_url VARCHAR(512) NULL")
+        add_column("educational_resources", "video_public_id VARCHAR(255) NULL")
+
         print("Making user_profiles.date_of_birth nullable...")
         try:
             db.session.execute(
