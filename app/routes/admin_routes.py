@@ -150,3 +150,19 @@ def list_privacy_integrations():
 @roles_required("admin")
 def get_user_consents(user_id):
     return privacy_ctrl.get_user_consents(user_id)
+
+
+@admin_bp.route("/education/<int:article_id>/video", methods=["POST"])
+@roles_required("admin")
+def upload_education_video(article_id):
+    from app.controllers import education_controller as education_ctrl
+
+    return education_ctrl.upload_education_resource_video(article_id)
+
+
+@admin_bp.route("/education/<int:article_id>/video", methods=["DELETE"])
+@roles_required("admin")
+def delete_education_video(article_id):
+    from app.controllers import education_controller as education_ctrl
+
+    return education_ctrl.delete_education_resource_video(article_id)
