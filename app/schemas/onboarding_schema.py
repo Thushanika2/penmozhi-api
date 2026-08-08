@@ -1,4 +1,23 @@
-from marshmallow import Schema, ValidationError, fields, validate, validates_schema
+from datetime import date
+
+from marshmallow import (
+    Schema,
+    ValidationError,
+    fields,
+    validate,
+    validates,
+    validates_schema,
+)
+
+MIN_ONBOARDING_AGE = 9
+MAX_ONBOARDING_AGE = 80
+
+
+def calculate_age(date_of_birth: date, today: date | None = None) -> int:
+    current_date = today or date.today()
+    return current_date.year - date_of_birth.year - (
+        (current_date.month, current_date.day) < (date_of_birth.month, date_of_birth.day)
+    )
 
 FLOW_LEVELS = ("light", "medium", "heavy", "very_heavy")
 CYCLE_REGULARITY = ("regular", "irregular")
@@ -118,6 +137,14 @@ class OnboardingSchema(Schema):
     notify_ovulation = fields.Bool(required=True)
     notify_medication = fields.Bool(required=True)
     notify_daily_health = fields.Bool(required=True)
+
+    @validates("date_of_birth")
+    def validate_date_of_birth(self, value, **_kwargs):
+        age = calculate_age(value)
+        if age < MIN_ONBOARDING_AGE or age > MAX_ONBOARDING_AGE:
+            raise ValidationError(
+                "Please enter a valid date of birth. This app is meant for users aged 9 to 80."
+            )
 
     @validates_schema
     def validate_onboarding(self, data, **_kwargs):
