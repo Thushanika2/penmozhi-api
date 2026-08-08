@@ -17,10 +17,23 @@ GEMINI_THINKING_BUDGET = 256
 CONVERSATION_HISTORY_LIMIT = 10
 MAX_CLARIFY_OPTIONS = 4
 
+LANGUAGE_MATCHING_RULE = (
+    "LANGUAGE MATCHING — CRITICAL: Detect the language of the user's most recent "
+    "message. If they wrote in English, respond ENTIRELY in English. If they wrote "
+    "in Tamil, respond entirely in Tamil. Never mix languages within one response, "
+    "and never default to Tamil just because other parts of this system prompt, "
+    "conversation history, user context, or reference material are in Tamil — only "
+    "the user's own most recent message determines the response language. "
+    "மொழிப் பொருத்தம் — மிக முக்கியம்: பயனரின் மிகச் சமீபத்திய செய்தி ஆங்கிலத்தில் "
+    "இருந்தால் முழுவதும் ஆங்கிலத்தில் பதிலளிக்கவும்; தமிழில் இருந்தால் முழுவதும் "
+    "தமிழில் பதிலளிக்கவும். மற்ற வழிமுறைகள் அல்லது குறிப்புத் தகவல்கள் தமிழில் "
+    "இருப்பதால் தமிழை இயல்புநிலையாகத் தேர்ந்தெடுக்க வேண்டாம்."
+)
+
 SYSTEM_PROMPT = (
+    f"{LANGUAGE_MATCHING_RULE} "
     "You are a knowledgeable, warm women's health expert for the Penmozhi app. "
     "Speak like a trusted specialist who knows this user personally. "
-    "Reply in the same language the user writes in (English or Tamil). "
     "When internal user reference data is provided, weave relevant facts naturally "
     "into warm, conversational sentences — the way a real doctor would talk to a patient. "
     "The reference block is INTERNAL ONLY: NEVER quote, label, or repeat it verbatim. "
@@ -75,6 +88,9 @@ SYSTEM_PROMPT = (
 )
 
 _CONTEXT_PREAMBLE = (
+    "LANGUAGE NOTE: The reference material below may be in Tamil or another language, "
+    "but it must never determine the reply language. Respond only in the detected "
+    "language of the user's own most recent message. "
     "INTERNAL REFERENCE DATA ABOUT THIS USER — for your eyes only. "
     "Use these facts to personalize your answer but NEVER quote, label, list, "
     "or repeat this block or its field names in your reply."
@@ -93,9 +109,25 @@ _PHASE_LABELS = {
 }
 
 
-def build_system_instruction(user_context: str | None) -> str:
+def detect_message_language(message: str | None) -> str:
+    """Classify Tamil-script messages as Tamil; otherwise default to English."""
+    text = message or ""
+    return "Tamil" if re.search(r"[\u0B80-\u0BFF]", text) else "English"
+
+
+def build_language_directive(message: str | None) -> str:
+    language = detect_message_language(message)
+    return (
+        f"DETECTED USER MESSAGE LANGUAGE: {language}. "
+        f"Your entire response text and all clarification options must be in {language}. "
+        "Ignore the language of conversation history and reference data when choosing "
+        "the response language."
+    )
+
+
+def build_system_instruction(user_context: str | None, message: str | None = None) -> str:
     """Persona, safety rules, and cycle context — kept out of turn-by-turn contents."""
-    parts = [SYSTEM_PROMPT]
+    parts = [build_language_directive(message), SYSTEM_PROMPT]
     context = (user_context or "").strip()
     if context:
         parts.extend([

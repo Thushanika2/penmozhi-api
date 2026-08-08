@@ -386,7 +386,7 @@ def _call_gemini(
     primary = current_app.config.get("GEMINI_MODEL", "gemini-2.0-flash")
     raw_contents = build_gemini_contents(history_messages or [], message)
     contents = _to_gemini_content(raw_contents)
-    system_instruction = build_system_instruction(user_context)
+    system_instruction = build_system_instruction(user_context, message)
 
     last_error: AssistantLLMUnavailable | None = None
     saw_quota = False
@@ -468,7 +468,7 @@ def _call_anthropic(
         response = client.messages.create(
             model=current_app.config.get("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022"),
             max_tokens=MAX_OUTPUT_TOKENS,
-            system=build_system_instruction(user_context),
+            system=build_system_instruction(user_context, message),
             messages=messages,
         )
         text_blocks = [block.text for block in response.content if hasattr(block, "text")]
