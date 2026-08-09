@@ -12,6 +12,8 @@ class MedicationSupplementReminder(db.Model):
     scheduled_time = db.Column(db.Time, nullable=False)
     dosage = db.Column(db.String(100), nullable=True)
     adherence_status = db.Column(db.String(50), nullable=False, default="pending")
+    adherence_date = db.Column(db.Date, nullable=True)
+    last_push_sent_on = db.Column(db.Date, nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
 
     user_profile = db.relationship("UserProfile", back_populates="medication_reminders")
@@ -27,5 +29,9 @@ class MedicationSupplementReminder(db.Model):
             ),
             "dosage": self.dosage,
             "adherence_status": self.adherence_status,
+            "adherence_date": self.adherence_date.isoformat() if self.adherence_date else None,
+            "last_push_sent_on": (
+                self.last_push_sent_on.isoformat() if self.last_push_sent_on else None
+            ),
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

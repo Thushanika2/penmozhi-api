@@ -37,13 +37,11 @@ def create_push_subscription():
         return validation_errors([("validation.invalid_payload", msg) for msg in errors], 400)
 
     endpoint = str(data.get("endpoint")).strip()
-    existing = PushSubscription.query.filter_by(
-        profile_id=current_user.id,
-        endpoint=endpoint,
-    ).first()
+    existing = PushSubscription.query.filter_by(endpoint=endpoint).first()
 
     try:
         if existing:
+            existing.profile_id = current_user.id
             existing.p256dh = str(data.get("p256dh")).strip()
             existing.auth = str(data.get("auth")).strip()
             existing.device_type = (
@@ -79,6 +77,29 @@ def delete_push_subscription(subscription_id):
 
     try:
         db.session.delete(sub)
+        db.session.commit()
+        return message_response(
+            "push_subscriptions.deleted_success",
+            "Push subscription removed successfully.",
+            200,
+        )
+    except Exception:
+        db.session.rollback()
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
+
+
+def unsubscribe_push_subscription():
+    data = request.get_json(silent=True) or {}
+    endpoint = str(data.get("endpoint", "")).strip()
+    if not endpoint:
+        return validation_errors(
+            [("validation.invalid_payload", "endpoint is required.")], 400
+        )
+
+    try:
+        PushSubscription.query.filter_by(
+            profile_id=current_user.id, endpoint=endpoint
+        ).delete(synchronize_session=False)
         db.session.commit()
         return message_response(
             "push_subscriptions.deleted_success",

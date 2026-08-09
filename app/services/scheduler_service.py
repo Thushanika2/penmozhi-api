@@ -28,9 +28,11 @@ def init_scheduler(app):
     _scheduler.add_job(
         func=lambda: _run_with_app_context(app, run_scheduled_notifications),
         trigger="interval",
-        minutes=int(os.getenv("SCHEDULER_INTERVAL_MINUTES", "15")),
+        minutes=int(os.getenv("SCHEDULER_INTERVAL_MINUTES", "1")),
         id="push_notifications",
         replace_existing=True,
+        coalesce=True,
+        max_instances=1,
     )
     _scheduler.start()
     app.logger.info("APScheduler started for push notifications.")

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import jsonify, request
 from flask_jwt_extended import current_user
@@ -7,6 +8,14 @@ from app.api_responses import error_response, message_response, validation_error
 from app.extensions import db
 from app.models.medication_supplement_reminder_model import MedicationSupplementReminder
 from app.utils import parse_time
+
+
+def _user_today():
+    try:
+        timezone = ZoneInfo(current_user.timezone or "Asia/Colombo")
+    except ZoneInfoNotFoundError:
+        timezone = ZoneInfo("Asia/Colombo")
+    return datetime.now(timezone).date()
 
 
 def _get_owned_reminder(reminder_id):
@@ -125,6 +134,7 @@ def mark_reminder_taken(reminder_id):
 
     try:
         reminder.adherence_status = "taken"
+        reminder.adherence_date = _user_today()
         db.session.commit()
         return message_response(
             "reminders.marked_taken",
@@ -156,6 +166,8 @@ def snooze_reminder(reminder_id):
         new_time = (base + timedelta(minutes=minutes)).time()
         reminder.scheduled_time = new_time
         reminder.adherence_status = "snoozed"
+        reminder.adherence_date = _user_today()
+        reminder.last_push_sent_on = None
         db.session.commit()
         return message_response(
             "reminders.snoozed",
