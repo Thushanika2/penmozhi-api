@@ -15,11 +15,41 @@ branch_labels = None
 depends_on = None
 
 
-def upgrade():
-    op.add_column("user_profiles", sa.Column("mode", sa.String(30), nullable=False, server_default="period"))
-    op.add_column("user_profiles", sa.Column("pin_hash", sa.String(255), nullable=True))
+def _inspector():
+    return sa.inspect(op.get_bind())
 
-    op.create_table(
+
+def _table_exists(table_name):
+    return table_name in _inspector().get_table_names()
+
+
+def _column_exists(table_name, column_name):
+    if not _table_exists(table_name):
+        return False
+    return column_name in {column["name"] for column in _inspector().get_columns(table_name)}
+
+
+def _foreign_key_exists(table_name, constraint_name, columns, referred_table):
+    if not _table_exists(table_name):
+        return False
+    return any(
+        foreign_key.get("name") == constraint_name
+        or (
+            foreign_key.get("constrained_columns") == columns
+            and foreign_key.get("referred_table") == referred_table
+        )
+        for foreign_key in _inspector().get_foreign_keys(table_name)
+    )
+
+
+def upgrade():
+    if not _column_exists("user_profiles", "mode"):
+        op.add_column("user_profiles", sa.Column("mode", sa.String(30), nullable=False, server_default="period"))
+    if not _column_exists("user_profiles", "pin_hash"):
+        op.add_column("user_profiles", sa.Column("pin_hash", sa.String(255), nullable=True))
+
+    if not _table_exists("tracking_categories"):
+        op.create_table(
         "tracking_categories",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("key", sa.String(100), nullable=False),
@@ -30,9 +60,10 @@ def upgrade():
         sa.Column("created_at", sa.DateTime(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("key"),
-    )
+        )
 
-    op.create_table(
+    if not _table_exists("custom_tags"):
+        op.create_table(
         "custom_tags",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("profile_id", sa.Integer(), nullable=False),
@@ -42,29 +73,24 @@ def upgrade():
         sa.ForeignKeyConstraint(["profile_id"], ["user_profiles.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("profile_id", "label", name="uq_custom_tag_profile_label"),
-    )
+        )
 
-    op.add_column("symptom_tracking_logs", sa.Column("tracking_category_id", sa.Integer(), nullable=True))
-    op.add_column("symptom_tracking_logs", sa.Column("custom_tag_id", sa.Integer(), nullable=True))
-    op.create_foreign_key(
-        "fk_symptom_tracking_category",
-        "symptom_tracking_logs",
-        "tracking_categories",
-        ["tracking_category_id"],
-        ["id"],
-    )
-    op.create_foreign_key(
-        "fk_symptom_custom_tag",
-        "symptom_tracking_logs",
-        "custom_tags",
-        ["custom_tag_id"],
-        ["id"],
-    )
+    if not _column_exists("symptom_tracking_logs", "tracking_category_id"):
+        op.add_column("symptom_tracking_logs", sa.Column("tracking_category_id", sa.Integer(), nullable=True))
+    if not _column_exists("symptom_tracking_logs", "custom_tag_id"):
+        op.add_column("symptom_tracking_logs", sa.Column("custom_tag_id", sa.Integer(), nullable=True))
+    if not _foreign_key_exists("symptom_tracking_logs", "fk_symptom_tracking_category", ["tracking_category_id"], "tracking_categories"):
+        op.create_foreign_key("fk_symptom_tracking_category", "symptom_tracking_logs", "tracking_categories", ["tracking_category_id"], ["id"])
+    if not _foreign_key_exists("symptom_tracking_logs", "fk_symptom_custom_tag", ["custom_tag_id"], "custom_tags"):
+        op.create_foreign_key("fk_symptom_custom_tag", "symptom_tracking_logs", "custom_tags", ["custom_tag_id"], ["id"])
 
-    op.add_column("daily_logs", sa.Column("sleep_source", sa.String(50), nullable=True))
-    op.add_column("health_profiles", sa.Column("last_notified_for", sa.Date(), nullable=True))
+    if not _column_exists("daily_logs", "sleep_source"):
+        op.add_column("daily_logs", sa.Column("sleep_source", sa.String(50), nullable=True))
+    if not _column_exists("health_profiles", "last_notified_for"):
+        op.add_column("health_profiles", sa.Column("last_notified_for", sa.Date(), nullable=True))
 
-    op.create_table(
+    if not _table_exists("pregnancy_profiles"):
+        op.create_table(
         "pregnancy_profiles",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("profile_id", sa.Integer(), nullable=False),
@@ -76,9 +102,10 @@ def upgrade():
         sa.ForeignKeyConstraint(["profile_id"], ["user_profiles.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("profile_id"),
-    )
+        )
 
-    op.create_table(
+    if not _table_exists("perimenopause_logs"):
+        op.create_table(
         "perimenopause_logs",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("profile_id", sa.Integer(), nullable=False),
@@ -92,9 +119,10 @@ def upgrade():
         sa.ForeignKeyConstraint(["profile_id"], ["user_profiles.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("profile_id", "log_date", name="uq_perimenopause_log_profile_date"),
-    )
+        )
 
-    op.create_table(
+    if not _table_exists("push_subscriptions"):
+        op.create_table(
         "push_subscriptions",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("profile_id", sa.Integer(), nullable=False),
@@ -105,9 +133,10 @@ def upgrade():
         sa.Column("created_at", sa.DateTime(), nullable=True),
         sa.ForeignKeyConstraint(["profile_id"], ["user_profiles.id"]),
         sa.PrimaryKeyConstraint("id"),
-    )
+        )
 
-    op.create_table(
+    if not _table_exists("cycle_shares"):
+        op.create_table(
         "cycle_shares",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("owner_profile_id", sa.Integer(), nullable=False),
@@ -119,9 +148,10 @@ def upgrade():
         sa.ForeignKeyConstraint(["owner_profile_id"], ["user_profiles.id"]),
         sa.ForeignKeyConstraint(["shared_with_profile_id"], ["user_profiles.id"]),
         sa.PrimaryKeyConstraint("id"),
-    )
+        )
 
-    op.create_table(
+    if not _table_exists("wearable_connections"):
+        op.create_table(
         "wearable_connections",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("profile_id", sa.Integer(), nullable=False),
@@ -133,9 +163,10 @@ def upgrade():
         sa.ForeignKeyConstraint(["profile_id"], ["user_profiles.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("profile_id", "provider", name="uq_wearable_profile_provider"),
-    )
+        )
 
-    op.create_table(
+    if not _table_exists("subscriptions"):
+        op.create_table(
         "subscriptions",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("profile_id", sa.Integer(), nullable=False),
@@ -146,7 +177,7 @@ def upgrade():
         sa.ForeignKeyConstraint(["profile_id"], ["user_profiles.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("profile_id"),
-    )
+        )
 
 
 def downgrade():
