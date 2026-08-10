@@ -6,31 +6,40 @@ from app.middleware import roles_required
 cycle_share_bp = Blueprint("cycle_shares", __name__, url_prefix="/api/cycle-shares")
 
 
-@cycle_share_bp.route("", methods=["POST"])
+@cycle_share_bp.post("/invites")
 @roles_required("user")
-def create_cycle_share():
-    return ctrl.create_cycle_share()
+def create_invite():
+    return ctrl.create_invite()
 
 
-@cycle_share_bp.route("", methods=["GET"])
+@cycle_share_bp.post("/connect")
 @roles_required("user")
-def list_cycle_shares():
-    return ctrl.list_cycle_shares()
+def connect_with_code():
+    return ctrl.connect_with_code()
 
 
-@cycle_share_bp.route("/<int:share_id>/accept", methods=["POST"])
+@cycle_share_bp.get("/connections")
 @roles_required("user")
-def accept_cycle_share(share_id):
-    return ctrl.accept_cycle_share(share_id)
+def list_connections():
+    return ctrl.list_connections()
 
 
-@cycle_share_bp.route("/<int:share_id>", methods=["DELETE"])
+@cycle_share_bp.post("/connections/<int:connection_id>/disconnect")
 @roles_required("user")
-def delete_cycle_share(share_id):
-    return ctrl.delete_cycle_share(share_id)
+def disconnect(connection_id):
+    return ctrl.disconnect(connection_id)
 
 
-@cycle_share_bp.route("/<int:share_id>/view", methods=["GET"])
+@cycle_share_bp.get("/connections/<int:connection_id>/view")
 @roles_required("user")
-def view_cycle_share(share_id):
-    return ctrl.view_cycle_share(share_id)
+def view_shared_cycle(connection_id):
+    return ctrl.view_shared_cycle(connection_id)
+
+
+@cycle_share_bp.route("", methods=["GET", "POST"])
+@cycle_share_bp.route("/<int:_share_id>", methods=["DELETE"])
+@cycle_share_bp.route("/<int:_share_id>/accept", methods=["POST"])
+@cycle_share_bp.route("/<int:_share_id>/view", methods=["GET"])
+@roles_required("user")
+def legacy_cycle_share(_share_id=None):
+    return ctrl.legacy_disabled()

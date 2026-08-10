@@ -15,6 +15,7 @@ POLICY_VERSIONS = {
     "privacy_policy": "1.0",
     "health_data_processing": "1.0",
     "wearable_data_sharing": "1.0",
+    "cycle_date_sharing": "1.0",
 }
 
 SIGNUP_CONSENT_TYPES = (
@@ -38,6 +39,8 @@ USER_DATA_TABLES = (
     "pregnancy_profiles",
     "push_subscriptions",
     "cycle_shares",
+    "sharing_invites",
+    "shared_connections",
     "wearable_connections",
     "subscriptions",
     "ai_health_assistant_sessions",

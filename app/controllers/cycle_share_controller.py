@@ -1,199 +1,165 @@
-import json
+from datetime import timedelta
+import secrets
 
-from flask import current_app, jsonify, request
+from flask import jsonify, request
 from flask_jwt_extended import current_user
+from sqlalchemy.exc import IntegrityError
 
-from app.api_responses import error_response, message_response, validation_errors
+from app.api_responses import error_response, message_response
 from app.extensions import db
-from app.models.cycle_share_model import CycleShare
 from app.models.cycle_history_log_model import CycleHistoryLog
-from app.models.daily_log_model import DailyLog
-from app.models.symptom_tracking_log_model import SymptomTrackingLog
+from app.models.sharing_model import SharedConnection, SharingInvite
 from app.models.user_profile_model import UserProfile
-from app.services.email_service import send_cycle_share_invite_email
+from app.services.cycle_prediction_service import compute_cycle_insights
+from app.services.privacy_service import record_consent
+from app.utils import utc_now
+
+INVITE_LIFETIME_MINUTES = 15
 
 
-def _get_owned_cycle_share(share_id):
-    share = db.session.get(CycleShare, share_id)
-    if not share:
-        return None, error_response("cycle_shares.not_found", "Cycle share not found.", 404)
-    if share.owner_profile_id != current_user.id:
-        return None, error_response("auth.forbidden", "Access forbidden: insufficient permissions.", 403)
-    return share, None
+def _active_connection(column, user_id):
+    return SharedConnection.query.filter(column == user_id, SharedConnection.status == "active").first()
 
 
-def _validate_cycle_share_payload(data):
-    errors = []
-    if not data:
-        return ["Request body is required."]
-
-    if data.get("shared_with_email") is None or str(data.get("shared_with_email")).strip() == "":
-        errors.append("shared_with_email is required.")
-
-    return errors
-
-
-def create_cycle_share():
-    data = request.get_json(silent=True)
-    if not data:
-        return error_response("request.body_required", "Request body is required.", 400)
-
-    errors = _validate_cycle_share_payload(data)
-    if errors:
-        return validation_errors([("validation.invalid_payload", msg) for msg in errors], 400)
-
-    email = str(data.get("shared_with_email")).strip().lower()
-    if email == current_user.email.lower():
-        return validation_errors(
-            [("validation.cannot_share_self", "You cannot share with your own email.")],
+def create_invite():
+    data = request.get_json(silent=True) or {}
+    if data.get("consent") is not True:
+        return error_response(
+            "cycle_sharing.consent_required",
+            "You must agree to share only your cycle dates before generating a code.",
             400,
         )
+    if _active_connection(SharedConnection.sharer_user_id, current_user.id):
+        return error_response(
+            "cycle_sharing.already_sharing",
+            "Disconnect your current viewer before creating a new invite.",
+            409,
+        )
 
-    permissions = data.get("permissions") or {"cycle": True, "symptoms": False}
-    if not isinstance(permissions, dict):
-        return validation_errors([("validation.permissions_object", "permissions must be an object.")], 400)
+    now = utc_now()
+    invite = SharingInvite(
+        code=secrets.token_urlsafe(9),
+        sharer_user_id=current_user.id,
+        created_at=now,
+        expires_at=now + timedelta(minutes=INVITE_LIFETIME_MINUTES),
+    )
+    db.session.add(invite)
+    record_consent(current_user.id, "cycle_date_sharing", context="one-time sharing invite")
+    db.session.commit()
+    return jsonify({"invite": invite.to_dict(include_code=True)}), 201
 
+
+def connect_with_code():
+    code = str((request.get_json(silent=True) or {}).get("code", "")).strip()
+    if not code:
+        return error_response("cycle_sharing.code_required", "Invite code is required.", 400)
+
+    invite = SharingInvite.query.filter_by(code=code).with_for_update().first()
+    if not invite:
+        return error_response("cycle_sharing.invalid_code", "Invite code is invalid.", 404)
+    now = utc_now()
+    if invite.used_at:
+        return error_response("cycle_sharing.code_used", "Invite code has already been used.", 409)
+    expires_at = invite.expires_at
+    if expires_at.tzinfo is None and now.tzinfo is not None:
+        expires_at = expires_at.replace(tzinfo=now.tzinfo)
+    if expires_at <= now:
+        return error_response("cycle_sharing.code_expired", "Invite code has expired.", 410)
+    if invite.sharer_user_id == current_user.id:
+        return error_response("cycle_sharing.cannot_connect_self", "You cannot use your own invite code.", 400)
+    if _active_connection(SharedConnection.sharer_user_id, invite.sharer_user_id):
+        return error_response("cycle_sharing.sharer_busy", "This person is already sharing with someone.", 409)
+    if _active_connection(SharedConnection.viewer_user_id, current_user.id):
+        return error_response(
+            "cycle_sharing.viewer_busy", "Disconnect your current shared cycle before connecting.", 409
+        )
+
+    connection = SharedConnection(
+        sharer_user_id=invite.sharer_user_id,
+        viewer_user_id=current_user.id,
+        active_sharer_user_id=invite.sharer_user_id,
+        active_viewer_user_id=current_user.id,
+        status="active",
+        connected_at=now,
+    )
+    invite.used_at = now
+    invite.used_by_user_id = current_user.id
+    db.session.add(connection)
     try:
-        share = CycleShare(
-            owner_profile_id=current_user.id,
-            shared_with_email=email,
-            status="pending",
-            permissions=permissions,
-        )
-        db.session.add(share)
         db.session.commit()
-
-        send_cycle_share_invite_email(
-            to_email=email,
-            owner_name=current_user.full_name,
-            share_id=share.id,
-        )
-
-        return message_response(
-            "cycle_shares.created_success",
-            "Cycle share invitation sent successfully.",
-            201,
-            cycle_share=share.to_dict(),
-        )
-    except Exception:
+    except IntegrityError:
         db.session.rollback()
-        return error_response("server.internal_error", "An internal server error occurred.", 500)
-
-
-def list_cycle_shares():
-    owned = (
-        CycleShare.query.filter_by(owner_profile_id=current_user.id)
-        .order_by(CycleShare.created_at.desc())
-        .all()
-    )
-    received = (
-        CycleShare.query.filter(
-            (CycleShare.shared_with_profile_id == current_user.id)
-            | (
-                (CycleShare.shared_with_email == current_user.email)
-                & (CycleShare.status.in_(["pending", "accepted"]))
-            )
+        return error_response(
+            "cycle_sharing.connection_conflict",
+            "The sharer or viewer already has an active connection.",
+            409,
         )
-        .order_by(CycleShare.created_at.desc())
-        .all()
-    )
-
-    seen = set()
-    combined = []
-    for share in owned + received:
-        if share.id not in seen:
-            seen.add(share.id)
-            combined.append(share)
-
-    return jsonify({"cycle_shares": [s.to_dict() for s in combined]}), 200
+    return jsonify({"connection": connection.to_dict(current_user.id)}), 201
 
 
-def accept_cycle_share(share_id):
-    share = db.session.get(CycleShare, share_id)
-    if not share:
-        return error_response("cycle_shares.not_found", "Cycle share not found.", 404)
+def list_connections():
+    connections = SharedConnection.query.filter(
+        (SharedConnection.sharer_user_id == current_user.id)
+        | (SharedConnection.viewer_user_id == current_user.id)
+    ).order_by(SharedConnection.connected_at.desc()).all()
+    return jsonify({"connections": [item.to_dict(current_user.id) for item in connections]}), 200
 
-    if share.shared_with_email.lower() != current_user.email.lower():
+
+def disconnect(connection_id):
+    connection = db.session.get(SharedConnection, connection_id)
+    if not connection:
+        return error_response("cycle_sharing.not_found", "Connection not found.", 404)
+    if current_user.id not in (connection.sharer_user_id, connection.viewer_user_id):
+        return error_response("auth.forbidden", "Access forbidden: insufficient permissions.", 403)
+    if connection.status != "active":
+        return error_response("cycle_sharing.already_disconnected", "Connection is already disconnected.", 409)
+    connection.status = "disconnected"
+    connection.disconnected_at = utc_now()
+    connection.active_sharer_user_id = None
+    connection.active_viewer_user_id = None
+    db.session.commit()
+    return message_response("cycle_sharing.disconnected", "Connection disconnected.", 200)
+
+
+def view_shared_cycle(connection_id):
+    # This status query is deliberately performed on every request; shared data is never cached.
+    connection = SharedConnection.query.filter_by(id=connection_id, status="active").first()
+    if not connection:
+        return error_response("cycle_sharing.inactive", "This connection is not active.", 403)
+    if connection.viewer_user_id != current_user.id:
         return error_response("auth.forbidden", "Access forbidden: insufficient permissions.", 403)
 
-    if share.status != "pending":
-        return error_response("cycle_shares.not_pending", "This invitation is no longer pending.", 400)
-
-    try:
-        share.status = "accepted"
-        share.shared_with_profile_id = current_user.id
-        db.session.commit()
-        return message_response(
-            "cycle_shares.accepted_success",
-            "Cycle share accepted successfully.",
-            200,
-            cycle_share=share.to_dict(),
-        )
-    except Exception:
-        db.session.rollback()
-        return error_response("server.internal_error", "An internal server error occurred.", 500)
-
-
-def delete_cycle_share(share_id):
-    share, error = _get_owned_cycle_share(share_id)
-    if error:
-        return error
-
-    try:
-        share.status = "revoked"
-        db.session.commit()
-        return message_response("cycle_shares.revoked_success", "Cycle share revoked successfully.", 200)
-    except Exception:
-        db.session.rollback()
-        return error_response("server.internal_error", "An internal server error occurred.", 500)
-
-
-def view_cycle_share(share_id):
-    share = db.session.get(CycleShare, share_id)
-    if not share:
-        return error_response("cycle_shares.not_found", "Cycle share not found.", 404)
-
-    if share.status != "accepted":
-        return error_response("cycle_shares.not_accepted", "This share is not active.", 403)
-
-    if share.shared_with_profile_id != current_user.id:
-        return error_response("auth.forbidden", "Access forbidden: insufficient permissions.", 403)
-
-    owner = db.session.get(UserProfile, share.owner_profile_id)
-    if not owner:
-        return error_response("auth.user_not_found", "Owner not found.", 404)
-
-    permissions = share.permissions or {}
-    payload = {
-        "cycle_share": share.to_dict(),
-        "owner_name": owner.full_name,
+    owner = db.session.get(UserProfile, connection.sharer_user_id)
+    periods = (
+        db.session.query(CycleHistoryLog.cycle_start_date, CycleHistoryLog.cycle_end_date)
+        .filter(CycleHistoryLog.profile_id == connection.sharer_user_id)
+        .order_by(CycleHistoryLog.cycle_start_date.desc())
+        .limit(12)
+        .all()
+    )
+    insights = compute_cycle_insights(owner)
+    # Strict allowlist: never serialize a cycle model, daily log, symptom, note, or AI record here.
+    predictions = {
+        "fertile_window_start": insights.get("fertile_window_start"),
+        "fertile_window_end": insights.get("fertile_window_end"),
+        "ovulation_date": insights.get("ovulation_date"),
+        "pms_window_start": insights.get("pms_window_start"),
+        "pms_window_end": insights.get("pms_window_end"),
     }
+    return jsonify({
+        "connection": connection.to_dict(current_user.id),
+        "periods": [
+            {"period_start_date": start.isoformat(), "period_end_date": end.isoformat()}
+            for start, end in periods
+        ],
+        "predictions": predictions,
+    }), 200
 
-    if permissions.get("cycle"):
-        cycles = (
-            CycleHistoryLog.query.filter_by(profile_id=owner.id)
-            .order_by(CycleHistoryLog.cycle_start_date.desc())
-            .limit(12)
-            .all()
-        )
-        payload["cycles"] = [c.to_dict() for c in cycles]
 
-    if permissions.get("symptoms"):
-        symptoms = (
-            SymptomTrackingLog.query.filter_by(profile_id=owner.id)
-            .order_by(SymptomTrackingLog.date_time.desc())
-            .limit(30)
-            .all()
-        )
-        payload["symptoms"] = [s.to_dict() for s in symptoms]
-
-    if permissions.get("daily_logs"):
-        logs = (
-            DailyLog.query.filter_by(profile_id=owner.id)
-            .order_by(DailyLog.log_date.desc())
-            .limit(30)
-            .all()
-        )
-        payload["daily_logs"] = [log.to_dict() for log in logs]
-
-    return jsonify(payload), 200
+# Legacy entry points are intentionally disabled so old accepted shares cannot bypass the safeguards.
+def legacy_disabled(*_args, **_kwargs):
+    return error_response(
+        "cycle_sharing.legacy_disabled",
+        "This sharing flow has been retired. Generate a new one-time invite code.",
+        410,
+    )
