@@ -1,0 +1,9 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "deploy": {
+    "preDeployCommand": "python manage_db.py upgrade",
+    "startCommand": "gunicorn run:app --bind 0.0.0.0:$PORT --timeout 120 --graceful-timeout 30",
+    "healthcheckPath": "/api/health",
+    "healthcheckTimeout": 120
+  }
+}
