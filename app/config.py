@@ -72,12 +72,19 @@ def _is_private_mysql_host(host: str | None) -> bool:
     )
 
 
-def _from_discrete_vars():
-    db_user = os.getenv("DB_USER") or os.getenv("MYSQLUSER")
-    db_password = os.getenv("DB_PASSWORD") or os.getenv("MYSQLPASSWORD")
-    db_host = os.getenv("DB_HOST") or os.getenv("MYSQLHOST")
-    db_port = os.getenv("DB_PORT") or os.getenv("MYSQLPORT") or "3306"
-    db_name = os.getenv("DB_NAME") or os.getenv("MYSQLDATABASE")
+def _from_discrete_vars(prefer_mysql=False):
+    if prefer_mysql:
+        db_user = os.getenv("MYSQLUSER") or os.getenv("DB_USER")
+        db_password = os.getenv("MYSQLPASSWORD") or os.getenv("DB_PASSWORD")
+        db_host = os.getenv("MYSQLHOST") or os.getenv("DB_HOST")
+        db_port = os.getenv("MYSQLPORT") or os.getenv("DB_PORT") or "3306"
+        db_name = os.getenv("MYSQLDATABASE") or os.getenv("DB_NAME")
+    else:
+        db_user = os.getenv("DB_USER") or os.getenv("MYSQLUSER")
+        db_password = os.getenv("DB_PASSWORD") or os.getenv("MYSQLPASSWORD")
+        db_host = os.getenv("DB_HOST") or os.getenv("MYSQLHOST")
+        db_port = os.getenv("DB_PORT") or os.getenv("MYSQLPORT") or "3306"
+        db_name = os.getenv("DB_NAME") or os.getenv("MYSQLDATABASE")
 
     if not all([db_user, db_password, db_host, db_name]):
         return None
@@ -102,8 +109,13 @@ def _build_database_uri():
         or os.getenv("RAILWAY_SERVICE_NAME")
         or os.getenv("RAILWAY_PROJECT_ID")
     )
+    private_discrete = _from_discrete_vars(prefer_mysql=True)
+    private_host = os.getenv("MYSQLHOST")
+    if private_discrete and _is_private_mysql_host(private_host):
+        return private_discrete
+
     discrete = _from_discrete_vars()
-    host = os.getenv("DB_HOST") or os.getenv("MYSQLHOST")
+    host = os.getenv("DB_HOST") or private_host
 
     if on_railway and discrete and _is_private_mysql_host(host):
         return discrete
