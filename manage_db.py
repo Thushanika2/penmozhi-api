@@ -15,7 +15,7 @@ import argparse
 import os
 import sys
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 
 
 def _is_development():
@@ -69,9 +69,52 @@ def cmd_migrate(app, message):
 
 def cmd_upgrade(app):
     from flask_migrate import upgrade
+    from flask_migrate import stamp
+    from app.extensions import db
 
     with app.app_context():
+        tables = set(inspect(db.engine).get_table_names())
+        if "user_profiles" not in tables:
+            # The earliest revision predates the base schema and assumes that
+            # user_profiles already exists. Bootstrap a genuinely empty
+            # database from the current models, then record the migration head.
+            db.create_all()
+            _ensure_alembic_version_table(db)
+            stamp(revision="head")
+            print("Empty database bootstrapped from models and stamped at head.")
+            return 0
+
+        if "alembic_version" in tables:
+            version = db.session.execute(
+                text("SELECT version_num FROM alembic_version LIMIT 1")
+            ).scalar()
+            model_tables = set(db.metadata.tables)
+            if not version and model_tables.issubset(tables):
+                _ensure_alembic_version_table(db)
+                stamp(revision="head")
+                print("Completed model bootstrap and stamped at head.")
+                return 0
         upgrade()
+
+
+def _ensure_alembic_version_table(db):
+    """Use a version column wide enough for this project's revision IDs."""
+    if "alembic_version" in inspect(db.engine).get_table_names():
+        db.session.execute(
+            text(
+                "ALTER TABLE alembic_version "
+                "MODIFY COLUMN version_num VARCHAR(64) NOT NULL"
+            )
+        )
+    else:
+        db.session.execute(
+            text(
+                "CREATE TABLE alembic_version ("
+                "version_num VARCHAR(64) NOT NULL PRIMARY KEY"
+                ")"
+            )
+        )
+    db.session.commit()
     print("Migrations applied.")
     return 0
 
