@@ -18,6 +18,7 @@ from app.routes.pregnancy_profile_routes import pregnancy_profile_bp
 from app.routes.perimenopause_log_routes import perimenopause_log_bp
 from app.routes.push_subscription_routes import push_api_bp, push_subscription_bp
 from app.routes.cycle_share_routes import cycle_share_bp
+from app.routes.invitation_routes import invitation_bp
 from app.routes.wearable_routes import wearable_bp
 from app.routes.subscription_routes import subscription_bp
 from app.routes.account_routes import account_bp
@@ -45,6 +46,7 @@ def register_blueprints(app):
     app.register_blueprint(push_subscription_bp)
     app.register_blueprint(push_api_bp)
     app.register_blueprint(cycle_share_bp)
+    app.register_blueprint(invitation_bp)
     app.register_blueprint(wearable_bp)
     app.register_blueprint(subscription_bp)
     app.register_blueprint(account_bp)

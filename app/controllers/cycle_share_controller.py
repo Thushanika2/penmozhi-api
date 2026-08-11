@@ -4,6 +4,8 @@ import secrets
 from flask import jsonify, request
 from flask_jwt_extended import current_user
 from sqlalchemy.exc import IntegrityError
+from marshmallow import ValidationError, validate
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.api_responses import error_response, message_response
 from app.extensions import db
@@ -11,18 +13,34 @@ from app.models.cycle_history_log_model import CycleHistoryLog
 from app.models.sharing_model import SharedConnection, SharingInvite
 from app.models.user_profile_model import UserProfile
 from app.services.cycle_prediction_service import compute_cycle_insights
+from app.services.email_service import send_cycle_invitation_email
 from app.services.privacy_service import record_consent
 from app.utils import utc_now
 
-INVITE_LIFETIME_MINUTES = 15
+INVITE_LIFETIME_MINUTES = 10
+INVITE_RESEND_COOLDOWN_SECONDS = 60
+MAX_VERIFICATION_ATTEMPTS = 5
+GENERIC_CODE_ERROR = "Invalid or expired invitation code."
 
 
 def _active_connection(column, user_id):
     return SharedConnection.query.filter(column == user_id, SharedConnection.status == "active").first()
 
 
-def create_invite():
+def _normalized_email(value):
+    email = str(value or "").strip().lower()
+    try:
+        validate.Email()(email)
+    except ValidationError:
+        return None
+    return email if len(email) <= 120 else None
+
+
+def send_invitation():
     data = request.get_json(silent=True) or {}
+    invited_email = _normalized_email(data.get("email"))
+    if not invited_email:
+        return error_response("invitations.invalid_email", "Enter a valid email address.", 400)
     if data.get("consent") is not True:
         return error_response(
             "cycle_sharing.consent_required",
@@ -37,36 +55,98 @@ def create_invite():
         )
 
     now = utc_now()
+    latest = (
+        SharingInvite.query.filter_by(
+            invited_email=invited_email,
+            status="active",
+        )
+        .order_by(SharingInvite.created_at.desc())
+        .with_for_update()
+        .first()
+    )
+    if latest:
+        created_at = latest.created_at
+        if created_at.tzinfo is None and now.tzinfo is not None:
+            created_at = created_at.replace(tzinfo=now.tzinfo)
+        retry_after = INVITE_RESEND_COOLDOWN_SECONDS - int((now - created_at).total_seconds())
+        if retry_after > 0:
+            return jsonify({
+                "error": "Please wait before requesting another invitation.",
+                "error_code": "invitations.cooldown",
+                "retry_after": retry_after,
+            }), 429
+
+    raw_code = f"{secrets.randbelow(1_000_000):06d}"
     invite = SharingInvite(
-        code=secrets.token_urlsafe(9),
+        invited_email=invited_email,
+        code_hash=generate_password_hash(raw_code),
         sharer_user_id=current_user.id,
         created_at=now,
         expires_at=now + timedelta(minutes=INVITE_LIFETIME_MINUTES),
+        status="active",
+        verification_attempts=0,
     )
-    db.session.add(invite)
-    record_consent(current_user.id, "cycle_date_sharing", context="one-time sharing invite")
-    db.session.commit()
-    return jsonify({"invite": invite.to_dict(include_code=True)}), 201
+    try:
+        db.session.add(invite)
+        db.session.flush()
+        if not send_cycle_invitation_email(invited_email, raw_code):
+            db.session.rollback()
+            return error_response(
+                "invitations.delivery_failed",
+                "Invitation could not be sent. Please try again later.",
+                503,
+            )
+        SharingInvite.query.filter(
+            SharingInvite.invited_email == invited_email,
+            SharingInvite.status == "active",
+            SharingInvite.id != invite.id,
+        ).update({"status": "invalidated"}, synchronize_session=False)
+        record_consent(current_user.id, "cycle_date_sharing", context="email invitation")
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
+    return jsonify({
+        "message": "Invitation sent successfully. Please check the email for your invitation code.",
+        "expires_in": INVITE_LIFETIME_MINUTES * 60,
+        "resend_after": INVITE_RESEND_COOLDOWN_SECONDS,
+    }), 200
 
 
-def connect_with_code():
-    code = str((request.get_json(silent=True) or {}).get("code", "")).strip()
-    if not code:
-        return error_response("cycle_sharing.code_required", "Invite code is required.", 400)
+def verify_invitation():
+    data = request.get_json(silent=True) or {}
+    email = _normalized_email(data.get("email"))
+    code = str(data.get("code", "")).strip()
+    if not email or len(code) != 6 or not code.isdigit():
+        return error_response("invitations.invalid_code", GENERIC_CODE_ERROR, 400)
 
-    invite = SharingInvite.query.filter_by(code=code).with_for_update().first()
-    if not invite:
-        return error_response("cycle_sharing.invalid_code", "Invite code is invalid.", 404)
     now = utc_now()
-    if invite.used_at:
-        return error_response("cycle_sharing.code_used", "Invite code has already been used.", 409)
+    invite = (
+        SharingInvite.query.filter_by(invited_email=email, status="active")
+        .order_by(SharingInvite.created_at.desc())
+        .with_for_update()
+        .first()
+    )
+    if not invite:
+        return error_response("invitations.invalid_code", GENERIC_CODE_ERROR, 400)
     expires_at = invite.expires_at
     if expires_at.tzinfo is None and now.tzinfo is not None:
         expires_at = expires_at.replace(tzinfo=now.tzinfo)
-    if expires_at <= now:
-        return error_response("cycle_sharing.code_expired", "Invite code has expired.", 410)
+    invalid = (
+        expires_at <= now
+        or invite.used_at is not None
+        or invite.verification_attempts >= MAX_VERIFICATION_ATTEMPTS
+        or current_user.email.strip().lower() != email
+        or not check_password_hash(invite.code_hash, code)
+    )
+    if invalid:
+        invite.verification_attempts += 1
+        if expires_at <= now or invite.verification_attempts >= MAX_VERIFICATION_ATTEMPTS:
+            invite.status = "invalidated"
+        db.session.commit()
+        return error_response("invitations.invalid_code", GENERIC_CODE_ERROR, 400)
     if invite.sharer_user_id == current_user.id:
-        return error_response("cycle_sharing.cannot_connect_self", "You cannot use your own invite code.", 400)
+        return error_response("invitations.invalid_code", GENERIC_CODE_ERROR, 400)
     if _active_connection(SharedConnection.sharer_user_id, invite.sharer_user_id):
         return error_response("cycle_sharing.sharer_busy", "This person is already sharing with someone.", 409)
     if _active_connection(SharedConnection.viewer_user_id, current_user.id):
@@ -84,6 +164,7 @@ def connect_with_code():
     )
     invite.used_at = now
     invite.used_by_user_id = current_user.id
+    invite.status = "used"
     db.session.add(connection)
     try:
         db.session.commit()
@@ -95,6 +176,70 @@ def connect_with_code():
             409,
         )
     return jsonify({"connection": connection.to_dict(current_user.id)}), 201
+
+
+def resend_invitation():
+    email = _normalized_email((request.get_json(silent=True) or {}).get("email"))
+    if not email or current_user.email.strip().lower() != email:
+        return error_response("invitations.invalid_code", GENERIC_CODE_ERROR, 400)
+    previous = (
+        SharingInvite.query.filter_by(invited_email=email, status="active")
+        .order_by(SharingInvite.created_at.desc())
+        .with_for_update()
+        .first()
+    )
+    if not previous:
+        return error_response("invitations.invalid_code", GENERIC_CODE_ERROR, 400)
+    now = utc_now()
+    created_at = previous.created_at
+    if created_at.tzinfo is None and now.tzinfo is not None:
+        created_at = created_at.replace(tzinfo=now.tzinfo)
+    retry_after = INVITE_RESEND_COOLDOWN_SECONDS - int((now - created_at).total_seconds())
+    if retry_after > 0:
+        return jsonify({
+            "error": "Please wait before requesting another invitation.",
+            "error_code": "invitations.cooldown",
+            "retry_after": retry_after,
+        }), 429
+
+    raw_code = f"{secrets.randbelow(1_000_000):06d}"
+    replacement = SharingInvite(
+        invited_email=email,
+        code_hash=generate_password_hash(raw_code),
+        sharer_user_id=previous.sharer_user_id,
+        created_at=now,
+        expires_at=now + timedelta(minutes=INVITE_LIFETIME_MINUTES),
+        status="active",
+        verification_attempts=0,
+    )
+    try:
+        db.session.add(replacement)
+        db.session.flush()
+        if not send_cycle_invitation_email(email, raw_code):
+            db.session.rollback()
+            return error_response(
+                "invitations.delivery_failed",
+                "Invitation could not be sent. Please try again later.",
+                503,
+            )
+        previous.status = "invalidated"
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return error_response("server.internal_error", "An internal server error occurred.", 500)
+    return jsonify({
+        "message": "Invitation sent successfully. Please check the email for your invitation code.",
+        "expires_in": INVITE_LIFETIME_MINUTES * 60,
+        "resend_after": INVITE_RESEND_COOLDOWN_SECONDS,
+    }), 200
+
+
+def create_invite():
+    return send_invitation()
+
+
+def connect_with_code():
+    return verify_invitation()
 
 
 def list_connections():

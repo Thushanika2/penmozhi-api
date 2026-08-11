@@ -173,6 +173,9 @@ class Config:
     SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
     SMTP_FROM = os.getenv("SMTP_FROM")
     SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() in ("true", "1", "yes")
+    BREVO_API_KEY = os.getenv("BREVO_API_KEY")
+    BREVO_FROM_EMAIL = os.getenv("BREVO_FROM_EMAIL")
+    BREVO_FROM_NAME = os.getenv("BREVO_FROM_NAME", "Penmozhi")
 
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
     ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022")

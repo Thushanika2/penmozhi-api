@@ -2,17 +2,20 @@ from flask import Blueprint
 
 from app.controllers import cycle_share_controller as ctrl
 from app.middleware import roles_required
+from app.extensions import limiter
 
 cycle_share_bp = Blueprint("cycle_shares", __name__, url_prefix="/api/cycle-shares")
 
 
 @cycle_share_bp.post("/invites")
+@limiter.limit("5 per hour")
 @roles_required("user")
 def create_invite():
     return ctrl.create_invite()
 
 
 @cycle_share_bp.post("/connect")
+@limiter.limit("10 per minute")
 @roles_required("user")
 def connect_with_code():
     return ctrl.connect_with_code()
